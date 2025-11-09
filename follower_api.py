@@ -1,17 +1,18 @@
 """
-Nike Rocket Follower API
--------------------------
+Nike Rocket Follower API - Coinbase Commerce Version
+-----------------------------------------------------
 Central hub for the follower system:
 1. Receives trade signals from your algo
 2. Manages user signups and API keys
 3. Forwards signals to active follower agents
 4. Tracks P&L for profit share calculation
 5. Enforces payment access control
+6. Processes payments via Coinbase Commerce (crypto)
 
-Deploy this to Vercel or Railway (free tier works!)
+Deploy this to Railway (free tier works!)
 """
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List, Dict
@@ -20,7 +21,9 @@ import secrets
 import os
 import json
 from pathlib import Path
-import stripe
+import httpx
+import hmac
+import hashlib
 
 app = FastAPI(title="Nike Rocket Follower API")
 
@@ -35,7 +38,8 @@ app.add_middleware(
 
 # Configuration
 ADMIN_SECRET_KEY = os.getenv('ADMIN_SECRET_KEY', 'your-admin-key-change-this')
-stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
+COINBASE_COMMERCE_API_KEY = os.getenv('COINBASE_COMMERCE_API_KEY')
+COINBASE_WEBHOOK_SECRET = os.getenv('COINBASE_WEBHOOK_SECRET')
 DATABASE_FILE = 'users_database.json'
 
 # ============================================================================
@@ -110,7 +114,8 @@ class Database:
             'profit_share_due': 0.0,
             'profit_share_paid': False,
             'payment_due_date': None,
-            'total_trades': 0
+            'total_trades': 0,
+            'coinbase_charge_id': None
         }
         self.data['users'][api_key] = user
         self.save()
@@ -145,6 +150,65 @@ class Database:
 db = Database()
 
 # ============================================================================
+# COINBASE COMMERCE INTEGRATION
+# ============================================================================
+
+async def create_coinbase_charge(amount: float, user_api_key: str, user_email: str):
+    """Create a Coinbase Commerce charge for payment"""
+    
+    if not COINBASE_COMMERCE_API_KEY:
+        raise HTTPException(status_code=500, detail="Coinbase Commerce not configured")
+    
+    url = "https://api.commerce.coinbase.com/charges"
+    
+    headers = {
+        "Content-Type": "application/json",
+        "X-CC-Api-Key": COINBASE_COMMERCE_API_KEY,
+        "X-CC-Version": "2018-03-22"
+    }
+    
+    payload = {
+        "name": "Nike Rocket Profit Share",
+        "description": f"Monthly profit share (5% of ${amount:.2f} profits)",
+        "pricing_type": "fixed_price",
+        "local_price": {
+            "amount": str(amount),
+            "currency": "USD"
+        },
+        "metadata": {
+            "api_key": user_api_key,
+            "email": user_email,
+            "type": "profit_share"
+        },
+        "redirect_url": f"https://nikerocket.io/payment-success?api_key={user_api_key}",
+        "cancel_url": f"https://nikerocket.io/payment-cancelled"
+    }
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, headers=headers, json=payload)
+        
+        if response.status_code != 201:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Coinbase Commerce error: {response.text}"
+            )
+        
+        return response.json()
+
+def verify_coinbase_webhook(payload: bytes, signature: str) -> bool:
+    """Verify webhook came from Coinbase Commerce"""
+    if not COINBASE_WEBHOOK_SECRET:
+        return True  # Skip verification if no secret set (for testing)
+    
+    computed_signature = hmac.new(
+        COINBASE_WEBHOOK_SECRET.encode('utf-8'),
+        payload,
+        hashlib.sha256
+    ).hexdigest()
+    
+    return hmac.compare_digest(computed_signature, signature)
+
+# ============================================================================
 # AUTHENTICATION
 # ============================================================================
 
@@ -163,7 +227,8 @@ def root():
     return {
         "service": "Nike Rocket Follower API",
         "status": "operational",
-        "version": "1.0.0"
+        "version": "2.0.0",
+        "payment_provider": "Coinbase Commerce"
     }
 
 @app.post("/signup")
@@ -191,11 +256,11 @@ def signup(request: SignupRequest):
             'message': 'Signup successful!',
             'api_key': api_key,
             'email': request.email,
-            'agent_deploy_url': 'https://render.com/deploy?repo=https://github.com/nikerocket/follower-agent',
+            'agent_deploy_url': 'https://render.com/deploy?repo=https://github.com/nikerocket/kraken-follower-agent',
             'instructions': {
                 'step1': 'Click the deploy URL above',
                 'step2': 'Paste your API key when prompted',
-                'step3': 'Enter your Hyperliquid API key',
+                'step3': 'Enter your Kraken Futures API key',
                 'step4': 'Set your portfolio size',
                 'step5': 'Click Deploy - done in 2 minutes!'
             }
@@ -233,15 +298,15 @@ def verify_access(request: VerifyRequest):
                         'reason': 'payment_overdue',
                         'amount_due': user['profit_share_due'],
                         'days_overdue': days_overdue,
-                        'payment_url': f'https://nikerocket.io/pay/{user["api_key"]}',
+                        'payment_url': f'https://your-api-url.railway.app/pay/{user["api_key"]}',
                         'message': f"""
 ⚠️ Access Suspended
 
 Outstanding profit share: ${user['profit_share_due']:.2f} (5% of profits)
 Overdue by: {days_overdue} days
 
-Pay here to restore access:
-https://nikerocket.io/pay/{user['api_key']}
+Pay with crypto here:
+https://your-api-url.railway.app/pay/{user['api_key']}
 
 Your agent will resume automatically after payment.
                         """
@@ -329,9 +394,6 @@ def broadcast_signal(request: BroadcastRequest):
         # Get all active users
         active_users = db.get_all_active_users()
         
-        # In a real implementation, you'd send webhooks to each user's agent
-        # For MVP, agents will poll /signal/latest endpoint
-        
         sent_count = len(active_users)
         blocked_count = len(db.data['users']) - sent_count
         
@@ -383,13 +445,13 @@ def get_latest_signal(api_key: str):
         raise HTTPException(status_code=500, detail=f"Failed to get signal: {str(e)}")
 
 # ============================================================================
-# API ENDPOINTS - PAYMENT (Stripe Integration)
+# API ENDPOINTS - PAYMENT (Coinbase Commerce)
 # ============================================================================
 
 @app.get("/pay/{api_key}")
-def create_payment_link(api_key: str):
+async def create_payment_link(api_key: str):
     """
-    Generate Stripe payment link for profit share
+    Generate Coinbase Commerce payment link for profit share
     """
     try:
         user = db.get_user_by_api_key(api_key)
@@ -403,56 +465,56 @@ def create_payment_link(api_key: str):
                 'amount': 0
             }
         
-        # Create Stripe payment link
-        if stripe.api_key:
-            payment_link = stripe.PaymentLink.create(
-                line_items=[{
-                    'price_data': {
-                        'currency': 'usd',
-                        'product_data': {
-                            'name': 'Nike Rocket Profit Share',
-                            'description': f'5% profit share (${user["profit_share_due"]:.2f})'
-                        },
-                        'unit_amount': int(user['profit_share_due'] * 100)  # Cents
-                    },
-                    'quantity': 1
-                }],
-                metadata={'api_key': api_key},
-                after_completion={
-                    'type': 'redirect',
-                    'redirect': {
-                        'url': 'https://nikerocket.io/payment-success'
-                    }
-                }
-            )
-            
-            return {
-                'payment_url': payment_link.url,
-                'amount': user['profit_share_due']
+        # Create Coinbase Commerce charge
+        charge = await create_coinbase_charge(
+            amount=user['profit_share_due'],
+            user_api_key=api_key,
+            user_email=user['email']
+        )
+        
+        # Save charge ID for tracking
+        db.update_user(api_key, {
+            'coinbase_charge_id': charge['data']['id']
+        })
+        
+        return {
+            'payment_url': charge['data']['hosted_url'],
+            'amount': user['profit_share_due'],
+            'charge_id': charge['data']['id'],
+            'instructions': {
+                '1': 'Click payment_url above',
+                '2': 'Choose your crypto (USDC, USDT, BTC, ETH)',
+                '3': 'Send from your wallet',
+                '4': 'Access restores automatically after confirmation'
             }
-        else:
-            return {
-                'message': 'Stripe not configured',
-                'amount': user['profit_share_due']
-            }
+        }
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Payment link creation failed: {str(e)}")
 
-@app.post("/webhook/stripe")
-async def stripe_webhook(request: dict):
+@app.post("/webhook/coinbase")
+async def coinbase_webhook(request: Request):
     """
-    Handle Stripe webhook events
+    Handle Coinbase Commerce webhook events
     Automatically restore access when payment received
     """
     try:
-        # In production, verify webhook signature here
+        # Get raw body for signature verification
+        body = await request.body()
+        signature = request.headers.get('X-CC-Webhook-Signature', '')
         
-        event_type = request.get('type')
+        # Verify webhook signature
+        if not verify_coinbase_webhook(body, signature):
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
         
-        if event_type == 'checkout.session.completed':
-            session = request.get('data', {}).get('object', {})
-            metadata = session.get('metadata', {})
+        # Parse event
+        event = json.loads(body)
+        event_type = event.get('event', {}).get('type')
+        
+        # Handle charge confirmed event
+        if event_type == 'charge:confirmed':
+            charge_data = event.get('event', {}).get('data', {})
+            metadata = charge_data.get('metadata', {})
             api_key = metadata.get('api_key')
             
             if api_key:
@@ -461,16 +523,19 @@ async def stripe_webhook(request: dict):
                     # Mark as paid and restore access
                     db.update_user(api_key, {
                         'profit_share_paid': True,
-                        'access_active': True
+                        'access_active': True,
+                        'profit_share_due': 0,
+                        'payment_confirmed_at': datetime.now().isoformat()
                     })
                     
-                    # TODO: Send confirmation email
+                    print(f"✅ Payment confirmed for {user['email']}")
                     
-                    return {'status': 'success'}
+                    return {'status': 'success', 'message': 'Payment confirmed'}
         
-        return {'status': 'ignored'}
+        return {'status': 'ignored', 'event_type': event_type}
     
     except Exception as e:
+        print(f"❌ Webhook error: {e}")
         raise HTTPException(status_code=500, detail=f"Webhook processing failed: {str(e)}")
 
 # ============================================================================
@@ -584,6 +649,7 @@ if __name__ == "__main__":
     import uvicorn
     
     print("🚀 Nike Rocket Follower API Starting...")
+    print(f"💳 Payment Provider: Coinbase Commerce")
     print(f"📊 Database: {DATABASE_FILE}")
     print(f"👥 Users: {len(db.data['users'])}")
     print(f"📡 Signals: {len(db.data['signals'])}")
