@@ -268,9 +268,49 @@ class SystemStats(Base):
 
 # Database initialization
 def init_db(engine):
-    """Initialize database with all tables"""
+    """Initialize database with all tables and run migrations"""
+    # Create tables
     Base.metadata.create_all(bind=engine)
     print("✅ Database tables created successfully")
+    
+    # Run migration to add verification columns if they don't exist
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            # Check if verified column exists
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'users' AND column_name = 'verified'
+            """))
+            
+            if not result.fetchone():
+                print("🔄 Running migration: Adding email verification columns...")
+                
+                # Add new columns
+                conn.execute(text("""
+                    ALTER TABLE users 
+                    ADD COLUMN verified BOOLEAN DEFAULT FALSE,
+                    ADD COLUMN verification_token VARCHAR(255),
+                    ADD COLUMN verification_expires TIMESTAMP
+                """))
+                
+                # Set existing users as verified and grant access
+                conn.execute(text("""
+                    UPDATE users 
+                    SET verified = TRUE, access_granted = TRUE
+                    WHERE verified IS NULL OR verified = FALSE
+                """))
+                
+                conn.commit()
+                print("✅ Migration completed: Email verification columns added")
+                print("✅ All existing users marked as verified")
+            else:
+                print("✅ Database schema up to date")
+                
+    except Exception as migration_error:
+        print(f"⚠️ Migration note: {migration_error}")
+        # Continue anyway - might be a new database
 
 
 def get_db_session(engine):
