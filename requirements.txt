@@ -1,5 +1,22 @@
-# Nike Rocket Follower Agent - Requirements
-# ===========================================
+# Nike Rocket Follower API - Requirements
+# =========================================
 
+# FastAPI framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic[email]==2.5.0
+
+# Database
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+
+# HTTP requests
+requests==2.31.0
 aiohttp==3.9.1
-asyncio==3.4.3
+
+# Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Environment
+python-dotenv==1.0.0
