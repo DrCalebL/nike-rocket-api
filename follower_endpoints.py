@@ -18,7 +18,7 @@ Author: Nike Rocket Team
 """
 
 from fastapi import APIRouter, HTTPException, Header, Depends, BackgroundTasks
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from typing import Optional, List
