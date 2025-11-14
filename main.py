@@ -1,16 +1,14 @@
 """
 Nike Rocket Follower System - Main API
 =======================================
-
-Updated main.py that includes follower system endpoints.
-
-Add this to your existing Railway API project.
+Updated main.py that includes follower system endpoints and signup page.
+Add this to your Railway API project.
 
 Author: Nike Rocket Team
 """
-
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from sqlalchemy import create_engine
 import os
 
@@ -46,10 +44,8 @@ if DATABASE_URL:
 else:
     print("⚠️ DATABASE_URL not set - database features disabled")
 
-
 # Include follower routes
 app.include_router(follower_router, tags=["follower"])
-
 
 # Health check
 @app.get("/")
@@ -59,6 +55,7 @@ async def root():
         "service": "Nike Rocket Follower API",
         "version": "1.0.0",
         "endpoints": {
+            "signup": "/signup",
             "broadcast": "/api/broadcast-signal",
             "latest_signal": "/api/latest-signal",
             "report_pnl": "/api/report-pnl",
@@ -71,11 +68,22 @@ async def root():
         }
     }
 
-
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
 
+# Signup page
+@app.get("/signup", response_class=HTMLResponse)
+async def signup_page():
+    """Serve the signup HTML page"""
+    try:
+        with open("signup.html", "r") as f:
+            return f.read()
+    except FileNotFoundError:
+        return HTMLResponse(
+            content="<h1>Signup page not found</h1><p>Please contact support.</p>",
+            status_code=404
+        )
 
 # Startup event
 @app.on_event("startup")
@@ -85,9 +93,9 @@ async def startup_event():
     print("=" * 60)
     print("✅ Database connected")
     print("✅ Follower routes loaded")
+    print("✅ Signup page available at /signup")
     print("✅ Ready to receive signals")
     print("=" * 60)
-
 
 # Run locally for testing
 if __name__ == "__main__":
