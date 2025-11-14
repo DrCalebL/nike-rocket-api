@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nike Rocket - Sign Up</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 500px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo h1 {
+            font-size: 32px;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .logo p {
+            color: #666;
+            font-size: 16px;
+        }
+
+        .form-section {
+            margin-bottom: 30px;
+        }
+
+        .form-section h2 {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result-section {
+            display: none;
+            margin-top: 30px;
+            padding: 20px;
+            background: #f0f7ff;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .result-section.show {
+            display: block;
+        }
+
+        .result-section h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+
+        .api-key-box {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px dashed #667eea;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            word-break: break-all;
+            color: #333;
+            position: relative;
+        }
+
+        .copy-btn {
+            margin-top: 10px;
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .copy-btn:hover {
+            background: #5568d3;
+        }
+
+        .copy-btn.copied {
+            background: #10b981;
+        }
+
+        .instructions {
+            margin-top: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+        }
+
+        .instructions h4 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .instructions ol {
+            padding-left: 20px;
+            color: #666;
+            line-height: 1.8;
+        }
+
+        .instructions ol li {
+            margin-bottom: 8px;
+        }
+
+        .deploy-btn {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 12px 24px;
+            background: #10b981;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        .deploy-btn:hover {
+            background: #059669;
+        }
+
+        .error-message {
+            color: #ef4444;
+            background: #fee2e2;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 15px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .features {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            color: #666;
+        }
+
+        .feature-item::before {
+            content: "✓";
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            background: #10b981;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 24px;
+            margin-right: 12px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <h1>🚀 Nike Rocket</h1>
+            <p>Automated Kraken Futures Trading</p>
+        </div>
+
+        <div class="form-section">
+            <h2>Sign Up</h2>
+            
+            <div class="input-group">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" placeholder="your.email@example.com" required>
+            </div>
+
+            <button class="btn" onclick="signup()">
+                <span id="btn-text">Create Account</span>
+                <span id="btn-loading" class="loading" style="display: none;"></span>
+            </button>
+
+            <div class="error-message" id="error-message"></div>
+        </div>
+
+        <div class="result-section" id="result-section">
+            <h3>✅ Account Created Successfully!</h3>
+            <p style="margin-bottom: 10px; color: #666;">Your API Key:</p>
+            <div class="api-key-box" id="api-key-box">
+                <span id="api-key-text"></span>
+            </div>
+            <button class="copy-btn" id="copy-btn" onclick="copyApiKey()">Copy API Key</button>
+
+            <div class="instructions">
+                <h4>🎯 Next Steps:</h4>
+                <ol>
+                    <li>Copy your API key above (keep it safe!)</li>
+                    <li>Click "Deploy to Render" button below</li>
+                    <li>Paste your API key when prompted</li>
+                    <li>Enter your Kraken API credentials</li>
+                    <li>Start receiving trading signals!</li>
+                </ol>
+                
+                <a href="https://render.com/deploy?repo=https://github.com/DrCalebL/kraken-follower-agent" class="deploy-btn" target="_blank">
+                    Deploy to Render →
+                </a>
+            </div>
+        </div>
+
+        <div class="features">
+            <div class="feature-item">24/7 automated trading</div>
+            <div class="feature-item">Professional signals</div>
+            <div class="feature-item">10% profit sharing model</div>
+            <div class="feature-item">No monthly fees</div>
+        </div>
+    </div>
+
+    <script>
+        async function signup() {
+            const email = document.getElementById('email').value;
+            const btn = document.querySelector('.btn');
+            const btnText = document.getElementById('btn-text');
+            const btnLoading = document.getElementById('btn-loading');
+            const errorMessage = document.getElementById('error-message');
+            const resultSection = document.getElementById('result-section');
+
+            // Validate email
+            if (!email || !email.includes('@')) {
+                errorMessage.textContent = 'Please enter a valid email address';
+                errorMessage.classList.add('show');
+                return;
+            }
+
+            // Hide error, show loading
+            errorMessage.classList.remove('show');
+            btn.disabled = true;
+            btnText.style.display = 'none';
+            btnLoading.style.display = 'inline-block';
+
+            try {
+                // Call API
+                const response = await fetch('/api/users/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Master-Key': 'nike-massive-rocket-railway-master'
+                    },
+                    body: JSON.stringify({ email: email })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success') {
+                    // Show success
+                    document.getElementById('api-key-text').textContent = data.api_key;
+                    resultSection.classList.add('show');
+                    
+                    // Hide form
+                    document.querySelector('.form-section').style.display = 'none';
+                } else {
+                    // Show error
+                    errorMessage.textContent = data.detail || 'Signup failed. Please try again.';
+                    errorMessage.classList.add('show');
+                }
+            } catch (error) {
+                errorMessage.textContent = 'Network error. Please check your connection and try again.';
+                errorMessage.classList.add('show');
+            } finally {
+                // Reset button
+                btn.disabled = false;
+                btnText.style.display = 'inline';
+                btnLoading.style.display = 'none';
+            }
+        }
+
+        function copyApiKey() {
+            const apiKeyText = document.getElementById('api-key-text').textContent;
+            const copyBtn = document.getElementById('copy-btn');
+            
+            navigator.clipboard.writeText(apiKeyText).then(() => {
+                copyBtn.textContent = '✓ Copied!';
+                copyBtn.classList.add('copied');
+                
+                setTimeout(() => {
+                    copyBtn.textContent = 'Copy API Key';
+                    copyBtn.classList.remove('copied');
+                }, 2000);
+            });
+        }
+
+        // Allow Enter key to submit
+        document.getElementById('email').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                signup();
+            }
+        });
+    </script>
+</body>
+</html>
