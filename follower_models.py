@@ -33,6 +33,11 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     api_key = Column(String, unique=True, index=True, nullable=False)  # nk_xxxxx format
     
+    # Email verification
+    verified = Column(Boolean, default=False)
+    verification_token = Column(String, unique=True, nullable=True)
+    verification_expires = Column(DateTime, nullable=True)
+    
     # Account status
     created_at = Column(DateTime, default=datetime.utcnow)
     access_granted = Column(Boolean, default=True)
