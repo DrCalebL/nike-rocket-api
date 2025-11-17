@@ -96,6 +96,11 @@ class PaymentCreate(BaseModel):
     for_month: str  # "2025-11"
 
 
+class ExecutionConfirmation(BaseModel):
+    """Confirm signal execution"""
+    delivery_id: int
+
+
 # ==================== DEPENDENCY INJECTION ====================
 
 def get_db():
@@ -263,14 +268,11 @@ async def get_latest_signal(
                 "expiration_limit_minutes": SIGNAL_EXPIRATION_MINUTES
             }
         
-        # Signal is fresh - mark as acknowledged
-        delivery.acknowledged = True
-        db.commit()
-        
-        # Return signal details
+        # Signal is fresh - deliver it WITHOUT marking as acknowledged yet
+        # Follower will confirm after successful execution
         signal = delivery.signal
         
-        print(f"✅ Signal delivered to {user.email}:")
+        print(f"📤 Signal delivered to {user.email} (awaiting execution confirmation):")
         print(f"   Signal ID: {signal.signal_id}")
         print(f"   Age: {signal_age_minutes:.1f} minutes (fresh)")
         
@@ -278,6 +280,7 @@ async def get_latest_signal(
             "access_granted": True,
             "signal": {
                 "signal_id": signal.signal_id,
+                "delivery_id": delivery.id,  # NEW: Need this to confirm later
                 "action": signal.action,
                 "symbol": signal.symbol,
                 "entry_price": signal.entry_price,
@@ -292,6 +295,62 @@ async def get_latest_signal(
     
     except Exception as e:
         print(f"❌ Error fetching signal: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/confirm-execution")
+async def confirm_execution(
+    confirmation: ExecutionConfirmation,
+    user: User = Depends(verify_user_key),
+    db: Session = Depends(get_db)
+):
+    """
+    Confirm signal execution (two-phase acknowledgment)
+    
+    Called by: Follower agent AFTER successful trade execution
+    Auth: Requires user API key
+    
+    This marks the signal as acknowledged only after the trade executes successfully.
+    If trade fails, signal remains unacknowledged and will retry on next poll.
+    """
+    try:
+        # Find the delivery record
+        delivery = db.query(SignalDelivery).filter(
+            SignalDelivery.id == confirmation.delivery_id,
+            SignalDelivery.user_id == user.id
+        ).first()
+        
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        if delivery.acknowledged:
+            # Already acknowledged - idempotent operation
+            return {
+                "status": "already_confirmed",
+                "message": "Signal already acknowledged"
+            }
+        
+        # Mark as acknowledged
+        delivery.acknowledged = True
+        delivery.acknowledged_at = datetime.utcnow()
+        db.commit()
+        
+        signal = delivery.signal
+        print(f"✅ Execution confirmed by {user.email}:")
+        print(f"   Signal ID: {signal.signal_id}")
+        print(f"   Symbol: {signal.symbol}")
+        print(f"   Action: {signal.action}")
+        
+        return {
+            "status": "confirmed",
+            "signal_id": signal.signal_id,
+            "message": "Execution confirmed successfully"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error confirming execution: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
