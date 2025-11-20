@@ -1,7 +1,7 @@
 """
 Nike Rocket Follower System - Main API
 =======================================
-Updated main.py that includes follower system, portfolio tracking, and dashboard.
+Updated main.py with user-friendly dashboard.
 Add this to your Railway API project.
 
 Author: Nike Rocket Team
@@ -97,12 +97,12 @@ async def signup_page():
             status_code=404
         )
 
-# Portfolio Dashboard
+# Portfolio Dashboard (USER-FRIENDLY VERSION)
 @app.get("/dashboard", response_class=HTMLResponse)
 async def portfolio_dashboard(request: Request):
-    """Portfolio tracking dashboard"""
+    """Portfolio tracking dashboard with API key input"""
     
-    # Get API key from query parameter or prompt user
+    # Get API key from query parameter (optional)
     api_key = request.query_params.get('key', '')
     
     html = f"""
@@ -131,6 +131,96 @@ async def portfolio_dashboard(request: Request):
             margin: 0 auto;
         }}
         
+        /* API Key Login Screen */
+        .login-screen {{
+            max-width: 500px;
+            margin: 100px auto;
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+        }}
+        
+        .login-screen h1 {{
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 32px;
+        }}
+        
+        .login-screen p {{
+            text-align: center;
+            color: #6b7280;
+            margin-bottom: 30px;
+        }}
+        
+        .input-group {{
+            margin-bottom: 20px;
+        }}
+        
+        .input-group label {{
+            display: block;
+            margin-bottom: 8px;
+            color: #374151;
+            font-weight: 600;
+        }}
+        
+        .input-group input {{
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 16px;
+        }}
+        
+        .input-group input:focus {{
+            outline: none;
+            border-color: #667eea;
+        }}
+        
+        .btn {{
+            width: 100%;
+            padding: 14px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }}
+        
+        .btn:hover {{
+            background: #5568d3;
+        }}
+        
+        .btn:disabled {{
+            background: #9ca3af;
+            cursor: not-allowed;
+        }}
+        
+        /* Setup Wizard */
+        .setup-wizard {{
+            max-width: 600px;
+            margin: 50px auto;
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+        }}
+        
+        .setup-wizard h2 {{
+            color: #667eea;
+            margin-bottom: 10px;
+        }}
+        
+        .setup-wizard p {{
+            color: #6b7280;
+            margin-bottom: 20px;
+        }}
+        
+        /* Dashboard */
         .hero {{
             text-align: center;
             color: white;
@@ -214,50 +304,91 @@ async def portfolio_dashboard(request: Request):
             margin-top: 4px;
         }}
         
-        #loading {{
-            text-align: center;
-            color: white;
-            padding: 100px 20px;
-            font-size: 24px;
-        }}
-        
         .error {{
             background: #fee2e2;
             color: #991b1b;
             padding: 20px;
             border-radius: 12px;
-            margin: 40px 20px;
+            margin: 20px 0;
             text-align: center;
         }}
         
-        .error button {{
-            margin-top: 20px;
-            padding: 12px 24px;
-            font-size: 16px;
-            background: #667eea;
+        .success {{
+            background: #d1fae5;
+            color: #065f46;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            text-align: center;
+        }}
+        
+        .logout-btn {{
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.2);
             color: white;
-            border: none;
+            border: 2px solid white;
             border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
         }}
         
-        .error button:hover {{
-            background: #5568d3;
+        .logout-btn:hover {{
+            background: rgba(255,255,255,0.3);
         }}
     </style>
 </head>
 <body>
     <div class="container">
-        <div id="loading">
-            <h2>⏳ Loading your portfolio...</h2>
+        <!-- Login Screen -->
+        <div id="login-screen" class="login-screen">
+            <h1>🚀 Nike Rocket</h1>
+            <p>Portfolio Performance Tracker</p>
+            
+            <div class="input-group">
+                <label for="api-key-input">Enter Your API Key:</label>
+                <input 
+                    type="text" 
+                    id="api-key-input" 
+                    placeholder="nk_..." 
+                    value="{api_key}"
+                >
+            </div>
+            
+            <button class="btn" onclick="login()">View Dashboard</button>
+            
+            <div id="login-error" style="display: none;"></div>
         </div>
         
+        <!-- Setup Wizard -->
+        <div id="setup-wizard" class="setup-wizard" style="display: none;">
+            <h2>🎯 Welcome to Nike Rocket!</h2>
+            <p>Let's set up your portfolio tracking in 30 seconds.</p>
+            
+            <div class="input-group">
+                <label for="initial-capital">Starting Capital (USD):</label>
+                <input 
+                    type="number" 
+                    id="initial-capital" 
+                    placeholder="10000"
+                    value="10000"
+                >
+            </div>
+            
+            <button class="btn" onclick="initializePortfolio()">Start Tracking</button>
+            
+            <div id="setup-message" style="display: none;"></div>
+        </div>
+        
+        <!-- Dashboard -->
         <div id="dashboard" style="display: none;">
+            <button class="logout-btn" onclick="logout()">Change API Key</button>
+            
             <div class="hero">
                 <h1>🚀 NIKE ROCKET PERFORMANCE</h1>
                 
-                <!-- Period Selector -->
                 <div class="period-selector">
                     <select id="period-selector" onchange="changePeriod()">
                         <option value="7d">Last 7 Days</option>
@@ -319,86 +450,174 @@ async def portfolio_dashboard(request: Request):
     </div>
     
     <script>
-        const API_URL = '';  // Same origin
-        let API_KEY = '{api_key}';
+        let currentApiKey = '{api_key}';
         let currentPeriod = '30d';
         
-        // If no API key in URL, prompt for it
-        if (!API_KEY) {{
-            API_KEY = prompt('Enter your API key:');
-            if (!API_KEY) {{
-                document.getElementById('loading').innerHTML = '<div class="error"><h2>❌ API Key Required</h2><p>Please provide your API key to view the dashboard.</p></div>';
+        // On page load
+        if (currentApiKey) {{
+            document.getElementById('api-key-input').value = currentApiKey;
+            login();
+        }}
+        
+        function login() {{
+            const apiKey = document.getElementById('api-key-input').value.trim();
+            
+            if (!apiKey) {{
+                showError('login-error', 'Please enter your API key');
+                return;
+            }}
+            
+            currentApiKey = apiKey;
+            localStorage.setItem('apiKey', apiKey);
+            
+            // Try to load stats
+            checkPortfolioStatus();
+        }}
+        
+        function logout() {{
+            localStorage.removeItem('apiKey');
+            currentApiKey = '';
+            document.getElementById('login-screen').style.display = 'block';
+            document.getElementById('setup-wizard').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'none';
+        }}
+        
+        async function checkPortfolioStatus() {{
+            try {{
+                const response = await fetch(`/api/portfolio/stats?period=30d`, {{
+                    headers: {{'X-API-Key': currentApiKey}}
+                }});
+                
+                if (response.status === 401) {{
+                    showError('login-error', 'Invalid API key. Please check and try again.');
+                    return;
+                }}
+                
+                const data = await response.json();
+                
+                if (data.status === 'no_data') {{
+                    // Portfolio initialized but no trades yet
+                    showDashboard(data);
+                }} else if (data.total_profit !== undefined) {{
+                    // Portfolio has data
+                    showDashboard(data);
+                }} else {{
+                    // Need to initialize
+                    showSetupWizard();
+                }}
+                
+            }} catch (error) {{
+                console.error('Error:', error);
+                // If error, assume needs setup
+                showSetupWizard();
             }}
         }}
         
-        function changePeriod() {{
-            currentPeriod = document.getElementById('period-selector').value;
-            document.getElementById('loading').style.display = 'block';
+        function showSetupWizard() {{
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('setup-wizard').style.display = 'block';
             document.getElementById('dashboard').style.display = 'none';
-            loadStats();
         }}
         
-        async function loadStats() {{
+        async function initializePortfolio() {{
+            const initialCapital = parseFloat(document.getElementById('initial-capital').value);
+            
+            if (!initialCapital || initialCapital <= 0) {{
+                showError('setup-message', 'Please enter a valid starting capital');
+                return;
+            }}
+            
             try {{
-                const response = await fetch(`${{API_URL}}/api/portfolio/stats?period=${{currentPeriod}}`, {{
-                    headers: {{'X-API-Key': API_KEY}}
+                const response = await fetch('/api/portfolio/initialize', {{
+                    method: 'POST',
+                    headers: {{
+                        'X-API-Key': currentApiKey,
+                        'Content-Type': 'application/json'
+                    }},
+                    body: JSON.stringify({{initial_capital: initialCapital}})
                 }});
                 
-                if (!response.ok) {{
-                    if (response.status === 401) {{
-                        throw new Error('Invalid API key. Please check your key and try again.');
-                    }}
-                    throw new Error(`HTTP ${{response.status}}`);
+                const data = await response.json();
+                
+                if (data.status === 'success' || data.status === 'already_initialized') {{
+                    showSuccess('setup-message', 'Portfolio initialized! Loading dashboard...');
+                    setTimeout(() => checkPortfolioStatus(), 1000);
+                }} else {{
+                    showError('setup-message', data.message || 'Failed to initialize portfolio');
                 }}
+                
+            }} catch (error) {{
+                showError('setup-message', 'Error initializing portfolio: ' + error.message);
+            }}
+        }}
+        
+        function showDashboard(stats) {{
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('setup-wizard').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+            
+            if (stats && stats.status !== 'no_data') {{
+                updateDashboard(stats);
+            }} else {{
+                // Show empty state
+                document.getElementById('profit-label').textContent = 'No Trades Yet';
+                document.getElementById('total-profit').textContent = '$0';
+                document.getElementById('time-tracking').textContent = 'Start trading to see your stats!';
+            }}
+        }}
+        
+        function updateDashboard(stats) {{
+            document.getElementById('profit-label').textContent = `${{stats.period}} Profit`;
+            document.getElementById('total-profit').textContent = `$${{stats.total_profit.toLocaleString()}}`;
+            document.getElementById('roi').textContent = `+${{stats.roi_on_initial}}%`;
+            document.getElementById('profit-factor').textContent = `${{stats.profit_factor}}x`;
+            document.getElementById('best-trade').textContent = `$${{stats.best_trade.toLocaleString()}}`;
+            document.getElementById('monthly-avg').textContent = `$${{stats.avg_monthly_profit.toLocaleString()}}`;
+            document.getElementById('total-trades').textContent = stats.total_trades;
+            document.getElementById('max-dd').textContent = `-${{stats.max_drawdown}}%`;
+            document.getElementById('dd-recovery').textContent = `+${{stats.recovery_from_dd.toFixed(0)}}% recovered`;
+            document.getElementById('sharpe').textContent = stats.sharpe_ratio.toFixed(1);
+            document.getElementById('days-active').textContent = stats.days_active;
+            document.getElementById('pf-detail').textContent = 
+                `$${{stats.gross_wins.toLocaleString()}} wins / $${{stats.gross_losses.toLocaleString()}} losses`;
+            
+            if (stats.started_tracking) {{
+                const startDate = new Date(stats.started_tracking);
+                document.getElementById('time-tracking').textContent = 
+                    `Trading since ${{startDate.toLocaleDateString()}} • ${{stats.period}}`;
+            }}
+        }}
+        
+        async function changePeriod() {{
+            currentPeriod = document.getElementById('period-selector').value;
+            
+            try {{
+                const response = await fetch(`/api/portfolio/stats?period=${{currentPeriod}}`, {{
+                    headers: {{'X-API-Key': currentApiKey}}
+                }});
                 
                 const stats = await response.json();
                 
-                if (stats.status === 'no_data') {{
-                    throw new Error('No trades recorded yet. Start trading to see your stats!');
+                if (stats.status !== 'no_data') {{
+                    updateDashboard(stats);
                 }}
-                
-                // Update period label
-                document.getElementById('profit-label').textContent = `${{stats.period}} Profit`;
-                
-                // Update DOM
-                document.getElementById('total-profit').textContent = `$${{stats.total_profit.toLocaleString()}}`;
-                document.getElementById('roi').textContent = `+${{stats.roi_on_initial}}%`;
-                document.getElementById('profit-factor').textContent = `${{stats.profit_factor}}x`;
-                document.getElementById('best-trade').textContent = `$${{stats.best_trade.toLocaleString()}}`;
-                document.getElementById('monthly-avg').textContent = `$${{stats.avg_monthly_profit.toLocaleString()}}`;
-                document.getElementById('total-trades').textContent = stats.total_trades;
-                document.getElementById('max-dd').textContent = `-${{stats.max_drawdown}}%`;
-                document.getElementById('dd-recovery').textContent = `+${{stats.recovery_from_dd.toFixed(0)}}% recovered`;
-                document.getElementById('sharpe').textContent = stats.sharpe_ratio.toFixed(1);
-                document.getElementById('days-active').textContent = stats.days_active;
-                
-                document.getElementById('pf-detail').textContent = 
-                    `$${{stats.gross_wins.toLocaleString()}} wins / $${{stats.gross_losses.toLocaleString()}} losses`;
-                
-                if (stats.started_tracking) {{
-                    const startDate = new Date(stats.started_tracking);
-                    document.getElementById('time-tracking').textContent = 
-                        `Trading since ${{startDate.toLocaleDateString()}} • ${{stats.period}}`;
-                }}
-                
-                document.getElementById('loading').style.display = 'none';
-                document.getElementById('dashboard').style.display = 'block';
-                
             }} catch (error) {{
                 console.error('Error loading stats:', error);
-                document.getElementById('loading').innerHTML = `
-                    <div class="error">
-                        <h2>❌ Error Loading Data</h2>
-                        <p>${{error.message}}</p>
-                        <button onclick="location.reload()">Retry</button>
-                    </div>
-                `;
             }}
         }}
         
-        // Load stats on page load
-        if (API_KEY) {{
-            loadStats();
+        function showError(elementId, message) {{
+            const el = document.getElementById(elementId);
+            el.className = 'error';
+            el.textContent = '❌ ' + message;
+            el.style.display = 'block';
+        }}
+        
+        function showSuccess(elementId, message) {{
+            const el = document.getElementById(elementId);
+            el.className = 'success';
+            el.textContent = '✅ ' + message;
+            el.style.display = 'block';
         }}
     </script>
 </body>
