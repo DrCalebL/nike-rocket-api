@@ -261,8 +261,8 @@ def send_api_key_resend_email(to_email: str, api_key: str) -> bool:
         print("⚠️ RESEND_API_KEY not set - email not sent")
         return False
     
-    setup_link = f"{{BASE_URL}}/setup?key={{api_key}}"
-    dashboard_link = f"{{BASE_URL}}/dashboard?key={{api_key}}"
+    setup_link = f"{BASE_URL}/setup?key={api_key}"
+    dashboard_link = f"{BASE_URL}/dashboard?key={api_key}"
     
     html_content = f"""
     <!DOCTYPE html>
@@ -326,7 +326,7 @@ def send_api_key_resend_email(to_email: str, api_key: str) -> bool:
             <h2 style="color: #667eea;">Your API Key</h2>
             <p>As requested, here's your Nike Rocket API key:</p>
             
-            <div class="api-key">{{api_key}}</div>
+            <div class="api-key">{api_key}</div>
             
             <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; border-radius: 8px; margin: 20px 0; text-align: left;">
                 <p style="margin: 0; color: #92400e;">
@@ -335,10 +335,10 @@ def send_api_key_resend_email(to_email: str, api_key: str) -> bool:
             </div>
             
             <div style="margin: 30px 0;">
-                <a href="{{dashboard_link}}" class="btn">
+                <a href="{dashboard_link}" class="btn">
                     📊 View Dashboard
                 </a>
-                <a href="{{setup_link}}" class="btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                <a href="{setup_link}" class="btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
                     ⚙️ Setup Agent
                 </a>
             </div>
@@ -356,12 +356,12 @@ Your Nike Rocket API Key
 
 As requested, here's your API key:
 
-{{api_key}}
+{api_key}
 
 🔒 Security Reminder: Never share your API key with anyone.
 
-View Dashboard: {{dashboard_link}}
-Setup Agent: {{setup_link}}
+View Dashboard: {dashboard_link}
+Setup Agent: {setup_link}
 
 If you didn't request this email, please ignore it or contact support.
     """
