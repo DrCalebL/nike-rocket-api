@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nike Rocket - Setup Your Trading Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 600px;
+            margin: 50px auto;
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+        }
+        
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 32px;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #6b7280;
+            margin-bottom: 30px;
+            font-size: 16px;
+        }
+        
+        .step {
+            background: #f3f4f6;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .step h3 {
+            color: #374151;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+        
+        .step p {
+            color: #6b7280;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+        
+        .step code {
+            background: #e5e7eb;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #374151;
+            font-weight: 600;
+        }
+        
+        .input-group input, .input-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .input-group input:focus, .input-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .input-group small {
+            display: block;
+            margin-top: 4px;
+            color: #9ca3af;
+            font-size: 12px;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .btn:hover {
+            background: #5568d3;
+        }
+        
+        .btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        
+        .alert {
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .alert.success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #6ee7b7;
+        }
+        
+        .alert.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+        
+        .alert.info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+        
+        .warning-box {
+            background: #fef3c7;
+            border: 2px solid #fbbf24;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .warning-box strong {
+            color: #92400e;
+            display: block;
+            margin-bottom: 8px;
+        }
+        
+        .warning-box p {
+            color: #78350f;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        .link {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Setup Your Trading Agent</h1>
+        <p class="subtitle">Configure your automated trading agent in 2 minutes</p>
+        
+        <div id="alert" class="alert"></div>
+        
+        <!-- Step 1: API Key -->
+        <div class="step">
+            <h3>📝 Step 1: Enter Your API Key</h3>
+            <p>Don't have one? <a href="/signup" class="link">Sign up here</a></p>
+        </div>
+        
+        <div class="input-group">
+            <label for="api-key">Your API Key:</label>
+            <input 
+                type="text" 
+                id="api-key" 
+                placeholder="nk_..."
+                autocomplete="off"
+            >
+            <small>Get this from your signup confirmation</small>
+        </div>
+        
+        <!-- Step 2: Kraken Credentials -->
+        <div class="step">
+            <h3>🔑 Step 2: Kraken API Credentials</h3>
+            <p>Create API key at: <a href="https://futures.kraken.com/settings/api" target="_blank" class="link">Kraken Futures Settings</a></p>
+            <p style="margin-top: 8px;">Required permissions: <code>Trade</code>, <code>View</code></p>
+        </div>
+        
+        <div class="warning-box">
+            <strong>⚠️ Security Notice:</strong>
+            <p>Your credentials are encrypted using military-grade AES-256 encryption. We never have access to your raw API keys. You can revoke access anytime by deleting the API key in Kraken.</p>
+        </div>
+        
+        <div class="input-group">
+            <label for="kraken-key">Kraken API Key:</label>
+            <input 
+                type="text" 
+                id="kraken-key" 
+                placeholder="Your Kraken API Key"
+                autocomplete="off"
+            >
+        </div>
+        
+        <div class="input-group">
+            <label for="kraken-secret">Kraken API Secret:</label>
+            <textarea 
+                id="kraken-secret" 
+                rows="3" 
+                placeholder="Your Kraken API Secret"
+                autocomplete="off"
+            ></textarea>
+        </div>
+        
+        <!-- Step 3: Start Trading -->
+        <div class="step">
+            <h3>✅ Step 3: Activate Agent</h3>
+            <p>Your agent will start automatically and follow all signals from the master algorithm.</p>
+        </div>
+        
+        <button class="btn" onclick="setupAgent()">🚀 Start My Trading Agent</button>
+        
+        <p style="text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px;">
+            Already set up? <a href="/dashboard" class="link">View Dashboard</a>
+        </p>
+    </div>
+    
+    <script>
+        function showAlert(message, type) {
+            const alert = document.getElementById('alert');
+            alert.textContent = message;
+            alert.className = `alert ${type}`;
+            alert.style.display = 'block';
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    window.location.href = `/dashboard?key=${document.getElementById('api-key').value}`;
+                }, 2000);
+            }
+        }
+        
+        async function setupAgent() {
+            const apiKey = document.getElementById('api-key').value.trim();
+            const krakenKey = document.getElementById('kraken-key').value.trim();
+            const krakenSecret = document.getElementById('kraken-secret').value.trim();
+            
+            // Validation
+            if (!apiKey) {
+                showAlert('Please enter your API key', 'error');
+                return;
+            }
+            
+            if (!apiKey.startsWith('nk_')) {
+                showAlert('Invalid API key format. Should start with "nk_"', 'error');
+                return;
+            }
+            
+            if (!krakenKey || !krakenSecret) {
+                showAlert('Please enter both Kraken API key and secret', 'error');
+                return;
+            }
+            
+            // Disable button
+            const btn = document.querySelector('.btn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Setting up your agent...';
+            
+            try {
+                const response = await fetch('/api/setup-agent', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': apiKey
+                    },
+                    body: JSON.stringify({
+                        kraken_api_key: krakenKey,
+                        kraken_api_secret: krakenSecret
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.status === 'success') {
+                    showAlert('✅ Agent configured successfully! Redirecting to dashboard...', 'success');
+                } else {
+                    showAlert(`Error: ${data.message || 'Failed to setup agent'}`, 'error');
+                    btn.disabled = false;
+                    btn.textContent = '🚀 Start My Trading Agent';
+                }
+            } catch (error) {
+                showAlert(`Error: ${error.message}`, 'error');
+                btn.disabled = false;
+                btn.textContent = '🚀 Start My Trading Agent';
+            }
+        }
+        
+        // Auto-fill API key from URL parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const apiKeyParam = urlParams.get('key');
+        if (apiKeyParam) {
+            document.getElementById('api-key').value = apiKeyParam;
+        }
+    </script>
+</body>
+</html>
