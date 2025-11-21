@@ -1,357 +1,297 @@
 """
-Nike Rocket Follower System - Database Models
-==============================================
+Nike Rocket Follower System - Database Models (WITH ENCRYPTED CREDENTIALS)
+==========================================================================
 
-Database models for managing followers, signals, and profit tracking.
-Designed for Railway PostgreSQL database.
-
-Updated: Added acknowledged_at field for two-phase acknowledgment
+Updated models that support:
+- Encrypted storage of Kraken API credentials
+- Agent status tracking (active/stopped)
+- Multi-agent support
 
 Author: Nike Rocket Team
+Updated: November 21, 2025
 """
 
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
-from datetime import datetime
-import secrets
+from sqlalchemy.orm import relationship, sessionmaker
+from datetime import datetime, timedelta
+from cryptography.fernet import Fernet
+import os
 
 Base = declarative_base()
+
+# Encryption key for credentials (store in environment variable!)
+ENCRYPTION_KEY = os.getenv("CREDENTIALS_ENCRYPTION_KEY")
+if ENCRYPTION_KEY:
+    cipher = Fernet(ENCRYPTION_KEY.encode())
+else:
+    # Generate new key if not set (for first time setup)
+    cipher = None
 
 
 class User(Base):
     """
-    Follower user account
-    
-    Tracks:
-    - User credentials and API key
-    - Subscription status
-    - Monthly P&L and fees
-    - Payment history
+    Follower user model - WITH ENCRYPTED KRAKEN CREDENTIALS
     """
-    __tablename__ = "users"
+    __tablename__ = "follower_users"
     
     id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
-    api_key = Column(String, unique=True, index=True, nullable=False)  # nk_xxxxx format
+    api_key = Column(String, unique=True, index=True, nullable=False)
+    email = Column(String, unique=True, nullable=False)
     
-    # Email verification
-    verified = Column(Boolean, default=False)
-    verification_token = Column(String, unique=True, nullable=True)
-    verification_expires = Column(DateTime, nullable=True)
+    # Encrypted Kraken credentials
+    kraken_api_key_encrypted = Column(Text, nullable=True)
+    kraken_api_secret_encrypted = Column(Text, nullable=True)
+    credentials_set = Column(Boolean, default=False)
     
-    # Account status
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # Agent status
+    agent_active = Column(Boolean, default=False)
+    agent_started_at = Column(DateTime, nullable=True)
+    agent_last_poll = Column(DateTime, nullable=True)
+    
+    # Access control
     access_granted = Column(Boolean, default=True)
     suspended_at = Column(DateTime, nullable=True)
     suspension_reason = Column(String, nullable=True)
     
-    # Monthly tracking (resets at month end)
-    monthly_profit = Column(Float, default=0.0)  # Total profit this month
-    monthly_trades = Column(Integer, default=0)   # Number of trades this month
-    monthly_fee_due = Column(Float, default=0.0)  # 10% of monthly_profit
-    monthly_fee_paid = Column(Boolean, default=False)
-    last_reset_date = Column(DateTime, default=datetime.utcnow)
+    # Account tracking
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime, nullable=True)
     
-    # All-time stats
+    # Monthly profit tracking
+    monthly_profit = Column(Float, default=0.0)
+    monthly_trades = Column(Integer, default=0)
+    monthly_fee_due = Column(Float, default=0.0)
+    monthly_fee_paid = Column(Boolean, default=True)
+    last_fee_calculation = Column(DateTime, nullable=True)
+    
+    # All-time tracking
     total_profit = Column(Float, default=0.0)
-    total_fees_paid = Column(Float, default=0.0)
     total_trades = Column(Integer, default=0)
+    total_fees_paid = Column(Float, default=0.0)
     
-    # Kraken account info (optional - for verification)
+    # Kraken account info
     kraken_account_id = Column(String, nullable=True)
     
     # Relationships
-    trades = relationship("Trade", back_populates="user", cascade="all, delete-orphan")
-    signals_received = relationship("SignalDelivery", back_populates="user", cascade="all, delete-orphan")
-    payments = relationship("Payment", back_populates="user", cascade="all, delete-orphan")
+    signal_deliveries = relationship("SignalDelivery", back_populates="user")
+    trades = relationship("Trade", back_populates="user")
+    payments = relationship("Payment", back_populates="user")
     
-    @staticmethod
-    def generate_api_key():
-        """Generate unique API key in format: nk_xxxxxxxxxxxxx"""
-        return f"nk_{secrets.token_urlsafe(16)}"
+    def set_kraken_credentials(self, api_key: str, api_secret: str):
+        """Encrypt and store Kraken credentials"""
+        if not cipher:
+            raise Exception("Encryption key not configured")
+        
+        self.kraken_api_key_encrypted = cipher.encrypt(api_key.encode()).decode()
+        self.kraken_api_secret_encrypted = cipher.encrypt(api_secret.encode()).decode()
+        self.credentials_set = True
     
-    def calculate_monthly_fee(self):
-        """Calculate 10% fee on monthly profit (only if profitable)"""
-        if self.monthly_profit > 0:
-            self.monthly_fee_due = self.monthly_profit * 0.10
-        else:
-            self.monthly_fee_due = 0.0
-        return self.monthly_fee_due
+    def get_kraken_credentials(self):
+        """Decrypt and return Kraken credentials"""
+        if not self.credentials_set or not cipher:
+            return None, None
+        
+        try:
+            api_key = cipher.decrypt(self.kraken_api_key_encrypted.encode()).decode()
+            api_secret = cipher.decrypt(self.kraken_api_secret_encrypted.encode()).decode()
+            return api_key, api_secret
+        except Exception:
+            return None, None
     
-    def reset_monthly_stats(self):
-        """Reset monthly stats at beginning of new month"""
-        self.monthly_profit = 0.0
-        self.monthly_trades = 0
-        self.monthly_fee_due = 0.0
-        self.monthly_fee_paid = False
-        self.last_reset_date = datetime.utcnow()
-    
-    def check_payment_status(self):
-        """Check if user should be suspended for non-payment"""
-        if self.monthly_fee_due > 0 and not self.monthly_fee_paid:
-            # Check if it's been more than 7 days since month end
-            days_since_reset = (datetime.utcnow() - self.last_reset_date).days
-            if days_since_reset > 37:  # 30 days in month + 7 day grace period
-                return False  # Should be suspended
+    def check_payment_status(self) -> bool:
+        """Check if monthly fee is paid"""
+        if not self.last_fee_calculation:
+            return True
+        
+        # Check if more than 30 days since last calculation
+        days_since = (datetime.utcnow() - self.last_fee_calculation).days
+        
+        if days_since >= 30:
+            # New month - needs payment if had profit
+            if self.monthly_profit > 0:
+                return self.monthly_fee_paid
+        
         return True
 
 
 class Signal(Base):
-    """
-    Trading signal broadcast by master algorithm
-    
-    Stores all signals sent to followers for tracking and verification
-    """
+    """Trading signal from master algorithm"""
     __tablename__ = "signals"
     
     id = Column(Integer, primary_key=True, index=True)
+    signal_id = Column(String, unique=True, index=True, nullable=False)
     
-    # Signal identification
-    signal_id = Column(String, unique=True, index=True)  # UUID
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Trading details
+    # Signal details
     action = Column(String, nullable=False)  # BUY or SELL
-    symbol = Column(String, nullable=False)  # ADA/USDT
+    symbol = Column(String, nullable=False)
     entry_price = Column(Float, nullable=False)
     stop_loss = Column(Float, nullable=False)
     take_profit = Column(Float, nullable=False)
-    leverage = Column(Float, nullable=False)
+    leverage = Column(Float, default=1.0)
     
-    # Optional metadata
+    # Market context
     timeframe = Column(String, nullable=True)
     trend_strength = Column(Float, nullable=True)
     volatility = Column(Float, nullable=True)
-    notes = Column(Text, nullable=True)
+    notes = Column(String, nullable=True)
     
-    # Delivery tracking
-    deliveries = relationship("SignalDelivery", back_populates="signal", cascade="all, delete-orphan")
+    # Timing
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    expires_at = Column(DateTime, nullable=True)
+    
+    # Relationships
+    deliveries = relationship("SignalDelivery", back_populates="signal")
 
 
 class SignalDelivery(Base):
-    """
-    Tracks which users received which signals
-    
-    Used for verification and debugging.
-    
-    Two-phase acknowledgment:
-    - acknowledged=False: Signal delivered but not yet executed
-    - acknowledged=True: Signal executed and confirmed
-    - acknowledged_at: Timestamp of confirmation
-    """
+    """Tracks signal delivery to each user"""
     __tablename__ = "signal_deliveries"
     
     id = Column(Integer, primary_key=True, index=True)
-    
     signal_id = Column(Integer, ForeignKey("signals.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("follower_users.id"), nullable=False)
     
+    # Delivery tracking
     delivered_at = Column(DateTime, default=datetime.utcnow)
-    acknowledged = Column(Boolean, default=False)  # Did follower agent confirm receipt?
-    acknowledged_at = Column(DateTime, nullable=True)  # NEW: When was execution confirmed?
+    acknowledged = Column(Boolean, default=False)
+    acknowledged_at = Column(DateTime, nullable=True)
+    
+    # Execution tracking
+    executed = Column(Boolean, default=False)
+    executed_at = Column(DateTime, nullable=True)
+    execution_price = Column(Float, nullable=True)
+    
+    # Failure tracking
+    failed = Column(Boolean, default=False)
+    failure_reason = Column(String, nullable=True)
+    retry_count = Column(Integer, default=0)
     
     # Relationships
     signal = relationship("Signal", back_populates="deliveries")
-    user = relationship("User", back_populates="signals_received")
+    user = relationship("User", back_populates="signal_deliveries")
 
 
 class Trade(Base):
-    """
-    Completed trade reported by follower agent
-    
-    Tracks actual execution results for profit calculation
-    """
+    """Completed trade record"""
     __tablename__ = "trades"
     
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("follower_users.id"), nullable=False)
+    signal_id = Column(Integer, ForeignKey("signals.id"), nullable=True)
     
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    signal_id = Column(String, nullable=True)  # Links to original signal
+    # Trade identifiers
+    trade_id = Column(String, unique=True, nullable=False)
+    kraken_order_id = Column(String, nullable=True)
     
-    # Trade identification
-    trade_id = Column(String, index=True)  # From follower agent
-    kraken_order_id = Column(String, nullable=True)  # Actual Kraken order ID
-    
-    # Execution details
+    # Timing
     opened_at = Column(DateTime, nullable=False)
-    closed_at = Column(DateTime, nullable=False)
+    closed_at = Column(DateTime, nullable=False, index=True)
     
+    # Trade details
     symbol = Column(String, nullable=False)
     side = Column(String, nullable=False)  # BUY or SELL
     
     entry_price = Column(Float, nullable=False)
     exit_price = Column(Float, nullable=False)
-    position_size = Column(Float, nullable=False)  # In base currency
-    leverage = Column(Float, nullable=False)
+    position_size = Column(Float, nullable=False)
+    leverage = Column(Float, default=1.0)
     
     # P&L
-    profit_usd = Column(Float, nullable=False)  # Final P&L in USD
-    profit_percent = Column(Float, nullable=True)  # % return
+    profit_usd = Column(Float, nullable=False)
+    profit_percent = Column(Float, nullable=True)
     
-    # Fee tracking
-    fee_charged = Column(Float, default=0.0)  # 10% of profit if positive
+    # Fee tracking (10% of profit)
+    fee_charged = Column(Float, default=0.0)
     
-    # Metadata
-    reported_at = Column(DateTime, default=datetime.utcnow)
-    notes = Column(Text, nullable=True)
+    # Notes
+    notes = Column(String, nullable=True)
     
-    # Relationship
+    # Relationships
     user = relationship("User", back_populates="trades")
-    
-    def calculate_fee(self):
-        """Calculate 10% fee on profitable trades"""
-        if self.profit_usd > 0:
-            self.fee_charged = self.profit_usd * 0.10
-        else:
-            self.fee_charged = 0.0
-        return self.fee_charged
 
 
 class Payment(Base):
-    """
-    Payment record from Coinbase Commerce
-    
-    Tracks monthly profit-sharing payments
-    """
+    """Payment record"""
     __tablename__ = "payments"
     
     id = Column(Integer, primary_key=True, index=True)
-    
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("follower_users.id"), nullable=False)
     
     # Payment details
     amount_usd = Column(Float, nullable=False)
-    currency = Column(String, nullable=False)  # USDC, USDT, BTC, ETH
+    currency = Column(String, default="USD")
     
-    # Coinbase Commerce details
+    # Coinbase Commerce
     coinbase_charge_id = Column(String, unique=True, nullable=True)
-    coinbase_payment_id = Column(String, nullable=True)
+    status = Column(String, default="pending")  # pending, completed, failed
     
-    # Status
-    status = Column(String, default="pending")  # pending, completed, failed, expired
+    # Timing
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     
-    # What this payment covers
-    for_month = Column(String, nullable=False)  # "2025-11" format
-    profit_amount = Column(Float, nullable=False)  # Profit this payment is for
+    # Context
+    for_month = Column(String, nullable=True)  # "2025-11"
+    profit_amount = Column(Float, default=0.0)
     
-    # Metadata
-    tx_hash = Column(String, nullable=True)  # Blockchain transaction hash
-    notes = Column(Text, nullable=True)
+    # Transaction details
+    tx_hash = Column(String, nullable=True)
     
-    # Relationship
+    # Relationships
     user = relationship("User", back_populates="payments")
 
 
 class SystemStats(Base):
-    """
-    System-wide statistics
-    
-    Tracks overall performance metrics
-    """
+    """System-wide statistics snapshot"""
     __tablename__ = "system_stats"
     
     id = Column(Integer, primary_key=True, index=True)
-    date = Column(DateTime, default=datetime.utcnow, unique=True)
     
-    # User metrics
+    # Counts
     total_users = Column(Integer, default=0)
-    active_users = Column(Integer, default=0)  # Received signal in last 7 days
+    active_users = Column(Integer, default=0)
     suspended_users = Column(Integer, default=0)
     
-    # Trading metrics
+    # Trading
     total_signals = Column(Integer, default=0)
     total_trades = Column(Integer, default=0)
     total_profit = Column(Float, default=0.0)
     total_fees_collected = Column(Float, default=0.0)
     
-    # Performance
-    avg_profit_per_trade = Column(Float, default=0.0)
-    win_rate = Column(Float, default=0.0)
-    
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-# Database initialization
-def init_db(engine):
-    """Initialize database with all tables and run migrations"""
-    # Create tables
-    Base.metadata.create_all(bind=engine)
-    print("✅ Database tables created successfully")
-    
-    # Run migrations
-    try:
-        from sqlalchemy import text
-        with engine.connect() as conn:
-            # Migration 1: Add email verification columns
-            result = conn.execute(text("""
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name = 'users' AND column_name = 'verified'
-            """))
-            
-            if not result.fetchone():
-                print("🔄 Running migration: Adding email verification columns...")
-                
-                conn.execute(text("""
-                    ALTER TABLE users 
-                    ADD COLUMN verified BOOLEAN DEFAULT FALSE,
-                    ADD COLUMN verification_token VARCHAR(255),
-                    ADD COLUMN verification_expires TIMESTAMP
-                """))
-                
-                conn.execute(text("""
-                    UPDATE users 
-                    SET verified = TRUE, access_granted = TRUE
-                    WHERE verified IS NULL OR verified = FALSE
-                """))
-                
-                conn.commit()
-                print("✅ Migration completed: Email verification columns added")
-            
-            # Migration 2: Add acknowledged_at column for two-phase acknowledgment
-            result = conn.execute(text("""
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name = 'signal_deliveries' AND column_name = 'acknowledged_at'
-            """))
-            
-            if not result.fetchone():
-                print("🔄 Running migration: Adding acknowledged_at column...")
-                
-                conn.execute(text("""
-                    ALTER TABLE signal_deliveries 
-                    ADD COLUMN acknowledged_at TIMESTAMP NULL
-                """))
-                
-                conn.commit()
-                print("✅ Migration completed: acknowledged_at column added")
-            
-            print("✅ Database schema up to date")
-                
-    except Exception as migration_error:
-        print(f"⚠️ Migration note: {migration_error}")
-        # Continue anyway - might be a new database
+    # Timestamp
+    snapshot_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 def get_db_session(engine):
-    """Create database session"""
-    from sqlalchemy.orm import sessionmaker
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    return SessionLocal()
+    """Get database session"""
+    Session = sessionmaker(bind=engine)
+    return Session()
 
 
-# Example usage
-if __name__ == "__main__":
-    print("Nike Rocket Follower System - Database Models")
-    print("=" * 50)
-    print("\nModels defined:")
-    print("  ✅ User - Follower accounts")
-    print("  ✅ Signal - Master signals")
-    print("  ✅ SignalDelivery - Delivery tracking (with two-phase acknowledgment)")
-    print("  ✅ Trade - Completed trades")
-    print("  ✅ Payment - Payment records")
-    print("  ✅ SystemStats - System metrics")
-    print("\nReady to deploy to Railway!")
+def init_db(engine):
+    """Initialize database tables"""
+    Base.metadata.create_all(bind=engine)
+    print("✅ Database tables created successfully")
+    
+    # Check schema
+    from sqlalchemy import inspect
+    inspector = inspect(engine)
+    tables = inspector.get_table_names()
+    
+    required_tables = [
+        'follower_users', 'signals', 'signal_deliveries', 
+        'trades', 'payments', 'system_stats'
+    ]
+    
+    missing = [t for t in required_tables if t not in tables]
+    if missing:
+        print(f"⚠️ Missing tables: {missing}")
+    else:
+        print("✅ Database schema up to date")
+
+
+# Export everything
+__all__ = [
+    'Base', 'User', 'Signal', 'SignalDelivery', 'Trade', 
+    'Payment', 'SystemStats', 'get_db_session', 'init_db'
+]
