@@ -483,6 +483,11 @@ async def portfolio_dashboard(request: Request):
                 return;
             }}
             
+            if (!apiKey.startsWith('nk_')) {{
+                showError('login-error', 'Invalid API key format. Keys should start with "nk_"');
+                return;
+            }}
+            
             currentApiKey = apiKey;
             localStorage.setItem('apiKey', apiKey);
             
@@ -506,6 +511,14 @@ async def portfolio_dashboard(request: Request):
                 
                 if (response.status === 401) {{
                     showError('login-error', 'Invalid API key. Please check and try again.');
+                    return;
+                }}
+                
+                if (!response.ok) {{
+                    // Handle other errors (500, 404, etc.)
+                    console.error('Portfolio stats error:', response.status);
+                    // Still try to show setup wizard for new users
+                    showSetupWizard();
                     return;
                 }}
                 
