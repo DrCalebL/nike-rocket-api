@@ -114,7 +114,7 @@
         .result-section {
             display: none;
             margin-top: 30px;
-            padding: 20px;
+            padding: 25px;
             background: #f0f7ff;
             border-radius: 10px;
             border-left: 4px solid #667eea;
@@ -130,37 +130,30 @@
             font-size: 20px;
         }
 
-        .api-key-box {
+        .email-highlight {
             background: white;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #667eea;
+            margin: 15px 0;
+            text-align: center;
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .info-box {
+            background: #fef3c7;
             padding: 15px;
             border-radius: 8px;
-            border: 2px dashed #667eea;
             margin: 15px 0;
-            font-family: 'Courier New', monospace;
-            font-size: 16px;
-            word-break: break-all;
-            color: #333;
-            position: relative;
+            border-left: 4px solid #f59e0b;
         }
 
-        .copy-btn {
-            margin-top: 10px;
-            padding: 10px 20px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
+        .info-box p {
+            color: #78350f;
             font-size: 14px;
-            transition: background 0.3s;
-        }
-
-        .copy-btn:hover {
-            background: #5568d3;
-        }
-
-        .copy-btn.copied {
-            background: #10b981;
+            line-height: 1.6;
+            margin: 0;
         }
 
         .setup-btn {
@@ -181,26 +174,6 @@
         .setup-btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 20px rgba(16, 185, 129, 0.4);
-        }
-
-        .info-box {
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 20px;
-            border: 1px solid #e5e7eb;
-        }
-
-        .info-box h4 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 16px;
-        }
-
-        .info-box p {
-            color: #666;
-            font-size: 14px;
-            line-height: 1.6;
         }
 
         .error-message {
@@ -332,43 +305,48 @@
                 const data = await response.json();
 
                 if (response.ok && data.status === 'success') {
-                    // NEW: Account created with API key returned directly
-                    const apiKey = data.api_key;
-                    
+                    // NEW USER - API key sent via email (SECURE!)
                     resultSection.innerHTML = `
-                        <h3>✅ Account Created Successfully!</h3>
+                        <h3>✅ Check Your Email!</h3>
                         <p style="color: #666; margin: 15px 0;">
-                            Welcome to Nike Rocket! Your account is ready.
+                            We've sent your API key and setup instructions to:
                         </p>
+                        <div class="email-highlight">${email}</div>
                         
-                        <div style="background: white; padding: 15px; border-radius: 8px; margin: 15px 0;">
-                            <h4 style="color: #333; margin-bottom: 10px; font-size: 14px;">Your API Key:</h4>
-                            <div class="api-key-box" id="api-key-text">${apiKey}</div>
-                            <button class="copy-btn" id="copy-btn" onclick="copyApiKey()">Copy API Key</button>
-                        </div>
-
                         <div class="info-box">
-                            <h4>📝 Important: Save Your API Key</h4>
                             <p>
-                                You'll need this API key to set up your trading agent. Keep it safe and don't share it with anyone.
+                                📧 <strong>Check your inbox</strong> for an email from Nike Rocket with your API key and a link to set up your trading agent.
                             </p>
                         </div>
 
-                        <a href="/setup?key=${apiKey}" class="setup-btn" id="setup-link">
-                            🚀 Setup Your Trading Agent
-                        </a>
-
-                        <div style="margin-top: 15px; text-align: center; font-size: 14px; color: #666;">
-                            <p>Takes 2 minutes • No technical skills required</p>
-                        </div>
+                        <p style="font-size: 14px; color: #666; text-align: center; margin-top: 20px;">
+                            Don't see the email? Check your spam folder or wait a minute and try again.
+                        </p>
                     `;
                     resultSection.classList.add('show');
                     document.querySelector('.form-section').style.display = 'none';
                     
                 } else if (response.status === 400 && data.detail === 'Email already registered') {
-                    // User already exists
-                    errorMessage.textContent = 'This email is already registered. Please use a different email or contact support to retrieve your API key.';
-                    errorMessage.classList.add('show');
+                    // EXISTING USER - API key resent via email (SECURE!)
+                    resultSection.innerHTML = `
+                        <h3>✅ API Key Sent to Your Email!</h3>
+                        <p style="color: #666; margin: 15px 0;">
+                            Your account already exists! We've sent your API key to:
+                        </p>
+                        <div class="email-highlight">${email}</div>
+                        
+                        <div class="info-box">
+                            <p>
+                                📧 <strong>Check your inbox</strong> for an email with your API key and setup instructions.
+                            </p>
+                        </div>
+
+                        <p style="font-size: 14px; color: #666; text-align: center; margin-top: 20px;">
+                            Don't see the email? Check your spam folder or contact support.
+                        </p>
+                    `;
+                    resultSection.classList.add('show');
+                    document.querySelector('.form-section').style.display = 'none';
                     
                 } else {
                     // Show error
@@ -385,24 +363,6 @@
                 btnText.style.display = 'inline';
                 btnLoading.style.display = 'none';
             }
-        }
-
-        function copyApiKey() {
-            const apiKeyText = document.getElementById('api-key-text').textContent;
-            const copyBtn = document.getElementById('copy-btn');
-            
-            navigator.clipboard.writeText(apiKeyText).then(() => {
-                copyBtn.textContent = '✓ Copied!';
-                copyBtn.classList.add('copied');
-                
-                setTimeout(() => {
-                    copyBtn.textContent = 'Copy API Key';
-                    copyBtn.classList.remove('copied');
-                }, 2000);
-            }).catch(() => {
-                // Fallback for browsers that don't support clipboard API
-                alert('API Key: ' + apiKeyText);
-            });
         }
 
         // Allow Enter key to submit
