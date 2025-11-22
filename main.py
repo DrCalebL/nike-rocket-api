@@ -69,12 +69,14 @@ async def root():
     return {
         "status": "online",
         "service": "$NIKEPIG's Massive Rocket API",
-        "version": "1.0.0",
+        "version": "1.0.1",
         "endpoints": {
             "signup": "/signup",
+            "login": "/login",
             "setup": "/setup",
             "dashboard": "/dashboard",
             "admin": "/admin?password=xxx",
+            "reset_database": "/admin/reset-database?password=xxx",
             "broadcast": "/api/broadcast-signal",
             "latest_signal": "/api/latest-signal",
             "report_pnl": "/api/report-pnl",
@@ -90,6 +92,10 @@ async def root():
             "portfolio_withdraw": "/api/portfolio/withdraw",
             "pay": "/api/pay/{api_key}",
             "webhook": "/api/payments/webhook"
+        },
+        "user_links": {
+            "new_users": "Visit /signup to create an account",
+            "returning_users": "Visit /login to access your dashboard"
         }
     }
 
@@ -390,6 +396,188 @@ async def setup_page():
             content="<h1>Setup page not found</h1><p>Please contact support.</p>",
             status_code=404
         )
+
+# Login page for returning users (NEW!)
+@app.get("/login", response_class=HTMLResponse)
+@app.get("/access", response_class=HTMLResponse)
+async def login_page():
+    """Login page for returning users to access their dashboard"""
+    try:
+        with open("login.html", "r") as f:
+            return f.read()
+    except FileNotFoundError:
+        return HTMLResponse("""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Access Dashboard - $NIKEPIG's Massive Rocket</title>
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        min-height: 100vh;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        padding: 20px;
+                    }
+                    .container {
+                        background: white;
+                        border-radius: 16px;
+                        box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+                        max-width: 500px;
+                        width: 100%;
+                        overflow: hidden;
+                    }
+                    .header {
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        padding: 40px 30px;
+                        text-align: center;
+                    }
+                    .header h1 {
+                        color: white;
+                        font-size: 28px;
+                        margin-bottom: 8px;
+                    }
+                    .header p {
+                        color: rgba(255,255,255,0.9);
+                        font-size: 14px;
+                    }
+                    .content {
+                        padding: 40px 30px;
+                    }
+                    .welcome {
+                        text-align: center;
+                        margin-bottom: 30px;
+                    }
+                    .welcome h2 {
+                        color: #374151;
+                        font-size: 24px;
+                        margin-bottom: 10px;
+                    }
+                    .welcome p {
+                        color: #6b7280;
+                        font-size: 14px;
+                    }
+                    .form-group {
+                        margin-bottom: 20px;
+                    }
+                    label {
+                        display: block;
+                        color: #374151;
+                        font-weight: 600;
+                        margin-bottom: 8px;
+                        font-size: 14px;
+                    }
+                    input {
+                        width: 100%;
+                        padding: 14px;
+                        border: 2px solid #e5e7eb;
+                        border-radius: 8px;
+                        font-size: 14px;
+                        font-family: 'Courier New', monospace;
+                        transition: border-color 0.2s;
+                    }
+                    input:focus {
+                        outline: none;
+                        border-color: #667eea;
+                    }
+                    .button {
+                        width: 100%;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        border: none;
+                        padding: 16px;
+                        border-radius: 8px;
+                        font-size: 16px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        transition: transform 0.2s, box-shadow 0.2s;
+                    }
+                    .button:hover {
+                        transform: translateY(-2px);
+                        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+                    }
+                    .help-box {
+                        background: #f9fafb;
+                        border-left: 4px solid #667eea;
+                        padding: 15px;
+                        border-radius: 8px;
+                        margin-top: 20px;
+                    }
+                    .help-box p {
+                        color: #6b7280;
+                        font-size: 13px;
+                        margin: 0 0 10px 0;
+                    }
+                    .help-box p:last-child {
+                        margin: 0;
+                    }
+                    .new-user-link {
+                        text-align: center;
+                        margin-top: 20px;
+                        padding-top: 20px;
+                        border-top: 1px solid #e5e7eb;
+                    }
+                    .new-user-link a {
+                        color: #667eea;
+                        text-decoration: none;
+                        font-weight: 600;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>🚀 $NIKEPIG's Massive Rocket</h1>
+                        <p>Access Your Trading Dashboard</p>
+                    </div>
+                    
+                    <div class="content">
+                        <div class="welcome">
+                            <h2>👋 Welcome Back!</h2>
+                            <p>Enter your API key to access your dashboard</p>
+                        </div>
+                        
+                        <form onsubmit="event.preventDefault(); window.location.href='/dashboard?key='+document.getElementById('apiKey').value">
+                            <div class="form-group">
+                                <label for="apiKey">Your API Key</label>
+                                <input 
+                                    type="text" 
+                                    id="apiKey" 
+                                    name="apiKey" 
+                                    placeholder="nk_..." 
+                                    required
+                                    autocomplete="off"
+                                >
+                            </div>
+                            
+                            <button type="submit" class="button">
+                                🔓 Access Dashboard
+                            </button>
+                        </form>
+                        
+                        <div class="help-box">
+                            <p><strong>💡 Where to find your API key:</strong></p>
+                            <p>• Check the welcome email sent to your inbox</p>
+                            <p>• Your API key starts with "nk_"</p>
+                            <p>• If you lost it, contact support to recover your account</p>
+                        </div>
+                        
+                        <div class="new-user-link">
+                            <p style="color: #6b7280; font-size: 14px; margin-bottom: 8px;">
+                                Don't have an account yet?
+                            </p>
+                            <a href="/signup">🚀 Sign Up Now - It's Free!</a>
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>
+        """, status_code=200)
 
 # Portfolio Dashboard (USER-FRIENDLY VERSION)
 @app.get("/dashboard", response_class=HTMLResponse)
