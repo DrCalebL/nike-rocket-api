@@ -856,16 +856,14 @@ async def portfolio_dashboard(request: Request):
         <!-- Setup Wizard -->
         <div id="setup-wizard" class="setup-wizard" style="display: none;">
             <h2>🎯 Welcome to $NIKEPIG's Massive Rocket!</h2>
-            <p>Let's set up your portfolio tracking in 30 seconds.</p>
+            <p>We'll automatically detect your Kraken balance and start tracking your performance!</p>
             
-            <div class="input-group">
-                <label for="initial-capital">Starting Capital (USD):</label>
-                <input 
-                    type="number" 
-                    id="initial-capital" 
-                    placeholder="10000"
-                    value="10000"
-                >
+            <div style="background: #f0f9ff; border-left: 4px solid #3b82f6; padding: 15px; margin: 20px 0; border-radius: 4px;">
+                <div style="color: #1e40af; font-weight: 600; margin-bottom: 5px;">📊 Auto-Detection</div>
+                <div style="color: #1e40af; font-size: 14px;">
+                    We'll query your current Kraken balance and use it as your starting capital. 
+                    Make sure your trading agent is set up first!
+                </div>
             </div>
             
             <button class="btn" onclick="initializePortfolio()">Start Tracking</button>
@@ -1256,28 +1254,32 @@ async def portfolio_dashboard(request: Request):
         }}
         
         async function initializePortfolio() {{
-            const initialCapital = parseFloat(document.getElementById('initial-capital').value);
-            
-            if (!initialCapital || initialCapital <= 0) {{
-                showError('setup-message', 'Please enter a valid starting capital');
-                return;
-            }}
+            // No need to get initial capital - it will be auto-detected!
             
             try {{
+                // Show loading message
+                showSuccess('setup-message', '🔍 Detecting your Kraken balance...');
+                
                 const response = await fetch('/api/portfolio/initialize', {{
                     method: 'POST',
                     headers: {{
                         'X-API-Key': currentApiKey,
                         'Content-Type': 'application/json'
                     }},
-                    body: JSON.stringify({{initial_capital: initialCapital}})
+                    body: JSON.stringify({{}})  // Empty - auto-detect!
                 }});
                 
                 const data = await response.json();
                 
-                if (data.status === 'success' || data.status === 'already_initialized') {{
-                    showSuccess('setup-message', 'Portfolio initialized! Loading dashboard...');
+                if (data.status === 'success') {{
+                    showSuccess('setup-message', 
+                        `✅ Portfolio initialized with $${{data.initial_capital.toLocaleString()}} detected from your Kraken account!`);
+                    setTimeout(() => checkPortfolioStatus(), 2000);
+                }} else if (data.status === 'already_initialized') {{
+                    showSuccess('setup-message', 'Portfolio already initialized! Loading dashboard...');
                     setTimeout(() => checkPortfolioStatus(), 1000);
+                }} else if (data.status === 'error') {{
+                    showError('setup-message', data.message);
                 }} else {{
                     showError('setup-message', data.message || 'Failed to initialize portfolio');
                 }}
