@@ -437,7 +437,7 @@ async def portfolio_dashboard(request: Request):
                 <!-- Social Sharing Buttons (NEW!) -->
                 <div style="margin: 30px 0;">
                     <div style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; margin-bottom: 20px;">
-                        <button onclick="shareToTwitter()" style="
+                        <button onclick="showBackgroundSelectorForTwitter()" style="
                             padding: 12px 24px;
                             background: #1DA1F2;
                             color: white;
@@ -471,7 +471,7 @@ async def portfolio_dashboard(request: Request):
                             <span>🔗</span> Copy Share Link
                         </button>
                         
-                        <button onclick="toggleBackgroundSelector()" style="
+                        <button onclick="showBackgroundSelectorForDownload()" style="
                             padding: 12px 24px;
                             background: #8b5cf6;
                             color: white;
@@ -569,7 +569,7 @@ async def portfolio_dashboard(request: Request):
                                 </div>
                             </div>
                         </div>
-                        <button onclick="downloadPerformanceCard()" style="
+                        <button id="selector-action-btn" onclick="handleSelectorAction()" style="
                             width: 100%;
                             padding: 12px;
                             background: #10b981;
@@ -805,6 +805,7 @@ async def portfolio_dashboard(request: Request):
         // ==================== SOCIAL SHARING FUNCTIONS (NEW!) ====================
         
         let selectedBackground = 'charles'; // Default background
+        let selectorMode = 'download'; // 'download' or 'twitter'
         
         function shareToTwitter() {{
             const profit = document.getElementById('total-profit').textContent;
@@ -960,6 +961,30 @@ ROI: ${{roi}}`;
         function toggleBackgroundSelector() {{
             const selector = document.getElementById('background-selector');
             selector.style.display = selector.style.display === 'none' ? 'block' : 'none';
+        }}
+        
+        function showBackgroundSelectorForDownload() {{
+            selectorMode = 'download';
+            const btn = document.getElementById('selector-action-btn');
+            btn.textContent = '✅ Download Image';
+            btn.style.background = '#10b981';
+            toggleBackgroundSelector();
+        }}
+        
+        function showBackgroundSelectorForTwitter() {{
+            selectorMode = 'twitter';
+            const btn = document.getElementById('selector-action-btn');
+            btn.textContent = '𝕏 Share to Twitter';
+            btn.style.background = '#1da1f2';
+            toggleBackgroundSelector();
+        }}
+        
+        function handleSelectorAction() {{
+            if (selectorMode === 'twitter') {{
+                shareToTwitter();
+            }} else {{
+                downloadPerformanceCard();
+            }}
         }}
         
         function selectBackground(bgType) {{
