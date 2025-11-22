@@ -929,6 +929,89 @@ async def portfolio_dashboard(request: Request):
                 </div>
             </div>
             
+            <!-- Agent Control Section (NEW!) -->
+            <div class="agent-control" style="
+                background: white;
+                border-radius: 12px;
+                padding: 30px;
+                margin-bottom: 30px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
+                    <div>
+                        <h2 style="margin: 0 0 10px 0; color: #667eea; font-size: 24px;">
+                            🤖 Trading Agent Control
+                        </h2>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="font-size: 14px; color: #6b7280;">Status:</div>
+                            <div id="agent-status-badge" style="
+                                padding: 4px 12px;
+                                border-radius: 12px;
+                                font-size: 13px;
+                                font-weight: 600;
+                                background: #fee2e2;
+                                color: #991b1b;
+                            ">
+                                Checking...
+                            </div>
+                        </div>
+                        <div id="agent-details" style="font-size: 13px; color: #6b7280; margin-top: 5px;">
+                            <!-- Agent details will load here -->
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; gap: 10px;">
+                        <button id="start-agent-btn" onclick="startAgent()" style="
+                            padding: 12px 24px;
+                            background: #10b981;
+                            color: white;
+                            border: none;
+                            border-radius: 8px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            transition: all 0.2s;
+                            display: none;
+                        ">
+                            ▶️ Start Agent
+                        </button>
+                        
+                        <button id="stop-agent-btn" onclick="stopAgent()" style="
+                            padding: 12px 24px;
+                            background: #ef4444;
+                            color: white;
+                            border: none;
+                            border-radius: 8px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            transition: all 0.2s;
+                            display: none;
+                        ">
+                            ⏸️ Stop Agent
+                        </button>
+                        
+                        <button onclick="checkAgentStatus()" style="
+                            padding: 12px 20px;
+                            background: #667eea;
+                            color: white;
+                            border: none;
+                            border-radius: 8px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            transition: all 0.2s;
+                        ">
+                            🔄 Refresh
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="agent-message" style="
+                    margin-top: 15px;
+                    padding: 12px;
+                    border-radius: 6px;
+                    display: none;
+                "></div>
+            </div>
+            
             <div class="hero">
                 <h1>🚀 $NIKEPIG'S MASSIVE ROCKET PERFORMANCE</h1>
                 
@@ -1229,12 +1312,16 @@ async def portfolio_dashboard(request: Request):
                     // Load balance summary and transactions
                     await loadBalanceSummary();
                     await loadTransactionHistory();
+                    // Check agent status (NEW!)
+                    await checkAgentStatus();
                 }} else if (data.total_profit !== undefined) {{
                     // Portfolio has data
                     showDashboard(data);
                     // Load balance summary and transactions
                     await loadBalanceSummary();
                     await loadTransactionHistory();
+                    // Check agent status (NEW!)
+                    await checkAgentStatus();
                 }} else {{
                     // Need to initialize
                     showSetupWizard();
@@ -1785,6 +1872,166 @@ ROI: ${{roi}}`;
                     URL.revokeObjectURL(url);
                     document.getElementById('background-selector').style.display = 'none';
                 }});
+            }}
+        }}
+        
+        // ==================== AGENT CONTROL FUNCTIONS (NEW!) ====================
+        
+        async function checkAgentStatus() {{
+            try {{
+                const response = await fetch('/api/agent-status', {{
+                    headers: {{'X-API-Key': currentApiKey}}
+                }});
+                
+                const data = await response.json();
+                
+                if (data.status === 'running') {{
+                    // Agent is running
+                    document.getElementById('agent-status-badge').innerHTML = '🟢 Running';
+                    document.getElementById('agent-status-badge').style.background = '#d1fae5';
+                    document.getElementById('agent-status-badge').style.color = '#065f46';
+                    
+                    document.getElementById('start-agent-btn').style.display = 'none';
+                    document.getElementById('stop-agent-btn').style.display = 'block';
+                    
+                    // Show agent details
+                    if (data.exchange && data.pair) {{
+                        document.getElementById('agent-details').textContent = 
+                            `Trading ${{data.pair}} on ${{data.exchange}}`;
+                    }}
+                }} else if (data.status === 'stopped' || data.status === 'not_found') {{
+                    // Agent is stopped or not set up
+                    document.getElementById('agent-status-badge').innerHTML = '🔴 Stopped';
+                    document.getElementById('agent-status-badge').style.background = '#fee2e2';
+                    document.getElementById('agent-status-badge').style.color = '#991b1b';
+                    
+                    document.getElementById('start-agent-btn').style.display = 'block';
+                    document.getElementById('stop-agent-btn').style.display = 'none';
+                    
+                    if (data.status === 'not_found') {{
+                        document.getElementById('agent-details').innerHTML = 
+                            '<a href="/setup" style="color: #667eea;">Set up your agent first →</a>';
+                    }} else {{
+                        document.getElementById('agent-details').textContent = 
+                            data.message || 'Agent is not running';
+                    }}
+                }} else {{
+                    // Unknown status
+                    document.getElementById('agent-status-badge').innerHTML = '⚠️ Unknown';
+                    document.getElementById('agent-status-badge').style.background = '#fef3c7';
+                    document.getElementById('agent-status-badge').style.color = '#92400e';
+                    
+                    document.getElementById('agent-details').textContent = data.message || '';
+                }}
+            }} catch (error) {{
+                console.error('Error checking agent status:', error);
+                document.getElementById('agent-status-badge').innerHTML = '❌ Error';
+                document.getElementById('agent-details').textContent = 'Could not check agent status';
+            }}
+        }}
+        
+        async function startAgent() {{
+            const startBtn = document.getElementById('start-agent-btn');
+            startBtn.disabled = true;
+            startBtn.textContent = '⏳ Starting...';
+            
+            try {{
+                const response = await fetch('/api/setup-agent', {{
+                    method: 'POST',
+                    headers: {{
+                        'X-API-Key': currentApiKey,
+                        'Content-Type': 'application/json'
+                    }},
+                    body: JSON.stringify({{
+                        action: 'start'
+                    }})
+                }});
+                
+                const data = await response.json();
+                
+                const messageEl = document.getElementById('agent-message');
+                
+                if (data.status === 'success' || data.status === 'running') {{
+                    messageEl.style.display = 'block';
+                    messageEl.style.background = '#d1fae5';
+                    messageEl.style.color = '#065f46';
+                    messageEl.textContent = '✅ Agent started successfully!';
+                    
+                    // Refresh status after 2 seconds
+                    setTimeout(() => {{
+                        checkAgentStatus();
+                        messageEl.style.display = 'none';
+                    }}, 2000);
+                }} else {{
+                    messageEl.style.display = 'block';
+                    messageEl.style.background = '#fee2e2';
+                    messageEl.style.color = '#991b1b';
+                    messageEl.textContent = '❌ ' + (data.message || 'Failed to start agent');
+                    
+                    startBtn.disabled = false;
+                    startBtn.textContent = '▶️ Start Agent';
+                }}
+            }} catch (error) {{
+                console.error('Error starting agent:', error);
+                const messageEl = document.getElementById('agent-message');
+                messageEl.style.display = 'block';
+                messageEl.style.background = '#fee2e2';
+                messageEl.style.color = '#991b1b';
+                messageEl.textContent = '❌ Error starting agent: ' + error.message;
+                
+                startBtn.disabled = false;
+                startBtn.textContent = '▶️ Start Agent';
+            }}
+        }}
+        
+        async function stopAgent() {{
+            const stopBtn = document.getElementById('stop-agent-btn');
+            stopBtn.disabled = true;
+            stopBtn.textContent = '⏳ Stopping...';
+            
+            try {{
+                const response = await fetch('/api/stop-agent', {{
+                    method: 'POST',
+                    headers: {{
+                        'X-API-Key': currentApiKey,
+                        'Content-Type': 'application/json'
+                    }}
+                }});
+                
+                const data = await response.json();
+                
+                const messageEl = document.getElementById('agent-message');
+                
+                if (data.status === 'success' || data.status === 'stopped') {{
+                    messageEl.style.display = 'block';
+                    messageEl.style.background = '#d1fae5';
+                    messageEl.style.color = '#065f46';
+                    messageEl.textContent = '✅ Agent stopped successfully!';
+                    
+                    // Refresh status after 2 seconds
+                    setTimeout(() => {{
+                        checkAgentStatus();
+                        messageEl.style.display = 'none';
+                    }}, 2000);
+                }} else {{
+                    messageEl.style.display = 'block';
+                    messageEl.style.background = '#fee2e2';
+                    messageEl.style.color = '#991b1b';
+                    messageEl.textContent = '❌ ' + (data.message || 'Failed to stop agent');
+                    
+                    stopBtn.disabled = false;
+                    stopBtn.textContent = '⏸️ Stop Agent';
+                }}
+            }} catch (error) {{
+                console.error('Error stopping agent:', error);
+                const messageEl = document.getElementById('agent-message');
+                messageEl.style.display = 'block';
+                messageEl.style.background = '#fee2e2';
+                messageEl.style.color = '#991b1b';
+                messageEl.textContent = '❌ Error stopping agent: ' + error.message;
+                
+                stopBtn.disabled = false;
+                stopBtn.textContent = '⏸️ Stop Agent';
             }}
         }}
         
