@@ -19,7 +19,7 @@ from typing import Optional
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 RESEND_API_URL = "https://api.resend.com/emails"
-FROM_EMAIL = os.getenv("FROM_EMAIL", "Nike Rocket <onboarding@resend.dev>")
+FROM_EMAIL = os.getenv("FROM_EMAIL", "$NIKEPIG's Massive Rocket <onboarding@resend.dev>")
 BASE_URL = os.getenv("BASE_URL", "https://nike-rocket-api-production.up.railway.app")
 
 
@@ -130,13 +130,13 @@ def send_welcome_email(to_email: str, api_key: str) -> bool:
     </head>
     <body>
         <div class="container">
-            <h1 style="color: white; margin: 0; font-size: 36px;">🚀 Nike Rocket</h1>
+            <h1 style="color: white; margin: 0; font-size: 36px;">🚀 $NIKEPIG's Massive Rocket</h1>
             <p style="color: white; margin: 10px 0; font-size: 16px;">Welcome to Automated Trading!</p>
         </div>
         
         <div class="content">
             <h2 style="color: #667eea;">Your Account is Ready!</h2>
-            <p>Thanks for signing up! Your Nike Rocket account has been created.</p>
+            <p>Thanks for signing up! Your $NIKEPIG's Massive Rocket account has been created.</p>
             
             <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0;">
                 <p style="margin: 0 0 10px 0;"><strong>Your API Key:</strong></p>
@@ -181,7 +181,7 @@ def send_welcome_email(to_email: str, api_key: str) -> bool:
         </div>
         
         <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #999;">
-            <p>Nike Rocket - Automated Kraken Futures Trading</p>
+            <p>$NIKEPIG's Massive Rocket - Automated Kraken Futures Trading</p>
             <p>You're receiving this email because you signed up at {BASE_URL}</p>
         </div>
     </body>
@@ -190,7 +190,7 @@ def send_welcome_email(to_email: str, api_key: str) -> bool:
     
     # Plain text version
     text_content = f"""
-Welcome to Nike Rocket!
+Welcome to $NIKEPIG's Massive Rocket!
 
 Your account is ready! Here's your API key:
 
@@ -214,7 +214,7 @@ View Your Dashboard:
 Need help? Visit {BASE_URL}/signup for detailed instructions.
 
 ---
-Nike Rocket - Automated Kraken Futures Trading
+$NIKEPIG's Massive Rocket - Automated Kraken Futures Trading
 You're receiving this email because you signed up at {BASE_URL}
     """
     
@@ -228,7 +228,7 @@ You're receiving this email because you signed up at {BASE_URL}
             json={
                 "from": FROM_EMAIL,
                 "to": [to_email],
-                "subject": "🚀 Welcome to Nike Rocket - Your API Key Inside",
+                "subject": "🚀 Welcome to $NIKEPIG's Massive Rocket - Your API Key Inside",
                 "html": html_content,
                 "text": text_content
             }
@@ -318,13 +318,13 @@ def send_api_key_resend_email(to_email: str, api_key: str) -> bool:
     </head>
     <body>
         <div class="container">
-            <h1 style="color: white; margin: 0; font-size: 36px;">🚀 Nike Rocket</h1>
+            <h1 style="color: white; margin: 0; font-size: 36px;">🚀 $NIKEPIG's Massive Rocket</h1>
             <p style="color: white; margin: 10px 0;">Your API Key</p>
         </div>
         
         <div class="content">
             <h2 style="color: #667eea;">Your API Key</h2>
-            <p>As requested, here's your Nike Rocket API key:</p>
+            <p>As requested, here's your $NIKEPIG's Massive Rocket API key:</p>
             
             <div class="api-key">{api_key}</div>
             
@@ -376,7 +376,7 @@ If you didn't request this email, please ignore it or contact support.
             json={
                 "from": FROM_EMAIL,
                 "to": [to_email],
-                "subject": "Your Nike Rocket API Key",
+                "subject": "Your $NIKEPIG's Massive Rocket API Key",
                 "html": html_content,
                 "text": text_content
             }
