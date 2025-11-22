@@ -1,65 +1,186 @@
-"""
-Portfolio API - Updated with Transaction Tracking
-=================================================
-
-New endpoints for automatic deposit/withdrawal detection.
-
-Author: Nike Rocket Team
-Updated: November 22, 2025
-"""
+# UPDATED PORTFOLIO API - AUTO-DETECT INITIAL CAPITAL
+# ====================================================
+# This version automatically detects initial capital from Kraken balance
 
 from fastapi import APIRouter, Request, HTTPException
-from balance_checker import BalanceChecker
+from datetime import datetime
+from decimal import Decimal
 import asyncpg
 import os
 
 router = APIRouter()
 
-# Database connection (use your existing db_pool)
-DATABASE_URL = os.getenv("DATABASE_URL")
+async def get_kraken_credentials(api_key: str):
+    """Get user's Kraken API credentials from database"""
+    DATABASE_URL = os.getenv("DATABASE_URL")
+    if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    
+    conn = await asyncpg.connect(DATABASE_URL)
+    
+    # Check follower_agents table for Kraken credentials
+    agent = await conn.fetchrow("""
+        SELECT api_key as kraken_key, api_secret as kraken_secret 
+        FROM follower_agents 
+        WHERE follower_user_id = $1 
+        LIMIT 1
+    """, api_key)
+    
+    await conn.close()
+    return agent
 
-# Create global balance checker instance
-balance_checker = None
+async def get_current_kraken_balance(kraken_key: str, kraken_secret: str):
+    """Get current USDT balance from Kraken"""
+    try:
+        import krakenex
+        from pykrakenapi import KrakenAPI
+        
+        # Initialize Kraken API
+        kraken = krakenex.API(key=kraken_key, secret=kraken_secret)
+        k = KrakenAPI(kraken)
+        
+        # Get balance
+        balance = k.get_account_balance()
+        
+        # Get USDT balance (or ZUSD depending on setup)
+        usdt_balance = 0
+        for currency in ['USDT', 'ZUSD', 'USD']:
+            if currency in balance.index:
+                usdt_balance = float(balance.loc[currency]['vol'])
+                break
+        
+        return Decimal(str(usdt_balance))
+        
+    except Exception as e:
+        print(f"Error getting Kraken balance: {e}")
+        return None
 
-async def get_balance_checker():
-    """Get or create balance checker instance"""
-    global balance_checker
-    if balance_checker is None:
-        db_pool = await asyncpg.create_pool(DATABASE_URL)
-        balance_checker = BalanceChecker(db_pool)
-    return balance_checker
+
+# NEW: Auto-detect initialize
+@router.post("/api/portfolio/initialize")
+async def initialize_portfolio_autodetect(request: Request):
+    """
+    Initialize portfolio tracking - AUTO-DETECTS initial capital from Kraken
+    """
+    api_key = request.headers.get("X-API-Key")
+    
+    if not api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+    
+    try:
+        DATABASE_URL = os.getenv("DATABASE_URL")
+        if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+            DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        
+        conn = await asyncpg.connect(DATABASE_URL)
+        
+        # Check if user already exists
+        existing = await conn.fetchrow(
+            "SELECT * FROM portfolio_users WHERE user_id = $1",
+            api_key
+        )
+        
+        if existing:
+            await conn.close()
+            return {
+                "status": "already_initialized",
+                "message": "Portfolio already initialized",
+                "initial_capital": float(existing['initial_capital'])
+            }
+        
+        # Get user's Kraken credentials
+        credentials = await get_kraken_credentials(api_key)
+        
+        if not credentials:
+            await conn.close()
+            return {
+                "status": "error",
+                "message": "No trading agent found. Please set up your agent first at /setup"
+            }
+        
+        # Get current Kraken balance (AUTO-DETECT!)
+        kraken_balance = await get_current_kraken_balance(
+            credentials['kraken_key'],
+            credentials['kraken_secret']
+        )
+        
+        if kraken_balance is None:
+            await conn.close()
+            return {
+                "status": "error",
+                "message": "Could not connect to Kraken. Please check your agent setup."
+            }
+        
+        # Check for zero or negative balance
+        if kraken_balance <= 0:
+            await conn.close()
+            return {
+                "status": "error",
+                "message": f"Your Kraken balance is $0. Please deposit funds to your Kraken account first."
+            }
+        
+        # Check minimum balance ($10 to avoid tracking dust amounts)
+        MINIMUM_BALANCE = 10
+        if kraken_balance < MINIMUM_BALANCE:
+            await conn.close()
+            return {
+                "status": "error",
+                "message": f"Minimum balance required: ${MINIMUM_BALANCE}. Your current balance: ${float(kraken_balance):.2f}"
+            }
+        
+        # Use current balance as initial capital!
+        initial_capital = float(kraken_balance)
+        
+        # Create portfolio user
+        await conn.execute("""
+            INSERT INTO portfolio_users (user_id, initial_capital, created_at, last_known_balance)
+            VALUES ($1, $2, CURRENT_TIMESTAMP, $2)
+        """, api_key, initial_capital)
+        
+        # Create initial transaction
+        await conn.execute("""
+            INSERT INTO portfolio_transactions (
+                user_id, transaction_type, amount, detection_method, notes
+            ) VALUES ($1, 'initial', $2, 'automatic', $3)
+        """, api_key, initial_capital, 
+            f'Auto-detected from Kraken balance: ${initial_capital:,.2f}')
+        
+        await conn.close()
+        
+        return {
+            "status": "success",
+            "message": f"Portfolio initialized with ${initial_capital:,.2f} from your Kraken account",
+            "initial_capital": initial_capital,
+            "detected_from": "kraken_balance"
+        }
+        
+    except Exception as e:
+        print(f"Error initializing portfolio: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
+# Balance Summary endpoint
 @router.get("/api/portfolio/balance-summary")
 async def get_balance_summary(request: Request):
-    """
-    Get comprehensive balance summary including deposits/withdrawals
-    
-    Query params:
-        key: API key
-    
-    Returns:
-        {
-            "initial_capital": 10000,
-            "total_deposits": 5000,
-            "total_withdrawals": 2000,
-            "net_deposits": 3000,
-            "total_capital": 13000,
-            "total_profit": 2500,
-            "current_value": 15500,
-            "roi_on_initial": 25.0,
-            "roi_on_total": 19.23,
-            "last_balance_check": "2025-11-22T10:30:00"
-        }
-    """
+    """Get comprehensive balance summary"""
     api_key = request.headers.get("X-API-Key") or request.query_params.get("key")
     
     if not api_key:
         raise HTTPException(status_code=401, detail="API key required")
     
     try:
-        checker = await get_balance_checker()
+        from balance_checker import BalanceChecker
+        
+        DATABASE_URL = os.getenv("DATABASE_URL")
+        if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+            DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        
+        db_pool = await asyncpg.create_pool(DATABASE_URL)
+        checker = BalanceChecker(db_pool)
         summary = await checker.get_balance_summary(api_key)
+        await db_pool.close()
         
         if not summary:
             return {
@@ -73,35 +194,26 @@ async def get_balance_summary(request: Request):
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error in balance summary: {e}")
+        return {
+            "status": "success",
+            "initial_capital": 0,
+            "total_deposits": 0,
+            "total_withdrawals": 0,
+            "net_deposits": 0,
+            "total_capital": 0,
+            "total_profit": 0,
+            "current_value": 0,
+            "roi_on_initial": 0,
+            "roi_on_total": 0,
+            "last_balance_check": None
+        }
 
 
+# Transaction History endpoint
 @router.get("/api/portfolio/transactions")
 async def get_transactions(request: Request):
-    """
-    Get transaction history (deposits/withdrawals)
-    
-    Query params:
-        key: API key
-        limit: Number of transactions (default 50)
-    
-    Returns:
-        {
-            "status": "success",
-            "transactions": [
-                {
-                    "transaction_type": "deposit",
-                    "amount": 5000,
-                    "balance_before": 10000,
-                    "balance_after": 15000,
-                    "detection_method": "automatic",
-                    "created_at": "2025-11-15T10:00:00",
-                    "notes": "Auto-detected deposit..."
-                },
-                ...
-            ]
-        }
-    """
+    """Get transaction history"""
     api_key = request.headers.get("X-API-Key") or request.query_params.get("key")
     limit = int(request.query_params.get("limit", 50))
     
@@ -109,8 +221,16 @@ async def get_transactions(request: Request):
         raise HTTPException(status_code=401, detail="API key required")
     
     try:
-        checker = await get_balance_checker()
+        from balance_checker import BalanceChecker
+        
+        DATABASE_URL = os.getenv("DATABASE_URL")
+        if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+            DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        
+        db_pool = await asyncpg.create_pool(DATABASE_URL)
+        checker = BalanceChecker(db_pool)
         transactions = await checker.get_transaction_history(api_key, limit)
+        await db_pool.close()
         
         return {
             "status": "success",
@@ -118,83 +238,8 @@ async def get_transactions(request: Request):
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/api/portfolio/check-balance")
-async def manual_balance_check(request: Request):
-    """
-    Manually trigger balance check for a user
-    
-    Headers:
-        X-API-Key: User's API key
-    
-    Returns:
-        {
-            "status": "success",
-            "message": "Balance checked",
-            "detected": "deposit" or "withdrawal" or null,
-            "amount": 5000 (if detected)
-        }
-    """
-    api_key = request.headers.get("X-API-Key")
-    
-    if not api_key:
-        raise HTTPException(status_code=401, detail="API key required")
-    
-    try:
-        # Get user's Kraken credentials
-        # (You'll need to adapt this to your existing code)
-        checker = await get_balance_checker()
-        
-        # This would call check_user_balance with the user's Kraken API credentials
-        # For now, just check all users
-        await checker.check_all_users()
-        
+        print(f"Error loading transactions: {e}")
         return {
             "status": "success",
-            "message": "Balance check initiated"
+            "transactions": []
         }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/api/portfolio/stats")
-async def get_portfolio_stats_with_balance(request: Request):
-    """
-    Enhanced portfolio stats including balance information
-    
-    This extends your existing /api/portfolio/stats endpoint
-    """
-    api_key = request.headers.get("X-API-Key") or request.query_params.get("key")
-    period = request.query_params.get("period", "30d")
-    
-    if not api_key:
-        raise HTTPException(status_code=401, detail="API key required")
-    
-    try:
-        checker = await get_balance_checker()
-        
-        # Get balance summary
-        balance_summary = await checker.get_balance_summary(api_key)
-        
-        if not balance_summary:
-            return {"status": "not_initialized"}
-        
-        # Get your existing portfolio stats
-        # (You'll merge this with your existing stats calculation)
-        
-        return {
-            "status": "success",
-            "period": period,
-            **balance_summary,
-            # ... add your existing stats here
-            "profit_factor": 2.5,  # Example
-            "best_trade": 500,
-            "total_trades": 45,
-            # etc.
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
