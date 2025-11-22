@@ -1255,7 +1255,15 @@ async def portfolio_dashboard(request: Request):
                 'all': 'all-time'
             }};
             
-            // Generate the performance card image first
+            // Prepare Twitter URL BEFORE generating image
+            const text = `$NIKEPIG's Massive Rocket ${{periodLabels[period]}} Performance Card
+
+Profit: ${{profit}}
+ROI: ${{roi}}`;
+            
+            const twitterUrl = `https://twitter.com/intent/tweet?text=${{encodeURIComponent(text)}}`;
+            
+            // Generate the performance card image
             generateImageForShare(profit, roi, period, periodLabels[period], (imageBlob) => {{
                 // Download the image automatically
                 const url = URL.createObjectURL(imageBlob);
@@ -1275,19 +1283,16 @@ async def portfolio_dashboard(request: Request):
                     }});
                 }}
                 
-                // Open Twitter with caption
-                const text = `$NIKEPIG's Massive Rocket ${{periodLabels[period]}} Performance Card
-
-Profit: ${{profit}}
-ROI: ${{roi}}`;
+                // IMMEDIATELY open Twitter (no setTimeout, no blocking alert!)
+                const twitterWindow = window.open(twitterUrl, '_blank');
                 
-                const twitterUrl = `https://twitter.com/intent/tweet?text=${{encodeURIComponent(text)}}`;
+                // Close the background selector modal
+                toggleBackgroundSelector();
                 
-                // Show helpful message then open Twitter
+                // Show non-blocking alert AFTER opening Twitter
                 setTimeout(() => {{
                     alert('📸 Performance card downloaded!\\n\\n💡 Tip: The image may be in your clipboard - just paste it into your tweet!\\n\\nOr click "Add photos" to attach the downloaded image.');
-                    window.open(twitterUrl, '_blank', 'width=600,height=400');
-                }}, 500);
+                }}, 100);
             }});
         }}
         
