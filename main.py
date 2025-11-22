@@ -257,6 +257,101 @@ async def admin_dashboard(password: str = ""):
             </html>
         """)
 
+# Database Reset Endpoint (NEW!)
+@app.post("/admin/reset-database")
+async def reset_database(password: str = ""):
+    """
+    DANGER ZONE: Reset entire database
+    
+    Deletes all data from all tables while preserving structure.
+    Access: POST /admin/reset-database?password=YOUR_ADMIN_PASSWORD
+    
+    Returns:
+        JSON with status and deleted row counts
+    """
+    from fastapi import HTTPException
+    
+    # Check password
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Invalid password")
+    
+    try:
+        import psycopg2
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        # Tables to clear (in dependency order - children first, parents last)
+        tables = [
+            'trades',
+            'portfolio_trades',
+            'portfolio_withdrawals',
+            'portfolio_deposits',
+            'error_logs',
+            'agent_logs',
+            'signal_deliveries',
+            'signals',
+            'payments',
+            'follower_users',
+            'portfolio_users',
+            'users',
+            'system_stats'
+        ]
+        
+        deleted_counts = {}
+        
+        # Delete all data from each table
+        for table in tables:
+            try:
+                # Count rows before deletion
+                cur.execute(f"SELECT COUNT(*) FROM {table}")
+                count_before = cur.fetchone()[0]
+                
+                # Delete all rows
+                cur.execute(f"DELETE FROM {table}")
+                
+                deleted_counts[table] = {
+                    'rows_deleted': count_before,
+                    'status': 'success'
+                }
+                
+                print(f"✅ Cleared {table}: {count_before} rows deleted")
+                
+            except Exception as e:
+                deleted_counts[table] = {
+                    'rows_deleted': 0,
+                    'status': 'error',
+                    'error': str(e)[:100]
+                }
+                print(f"⚠️ Error clearing {table}: {str(e)[:100]}")
+        
+        # Commit all deletions
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        total_deleted = sum(
+            t.get('rows_deleted', 0) 
+            for t in deleted_counts.values() 
+            if isinstance(t, dict)
+        )
+        
+        print(f"🎉 Database reset complete! {total_deleted} total rows deleted")
+        
+        return {
+            "status": "success",
+            "message": f"🎉 Database reset complete! Deleted {total_deleted} rows",
+            "deleted": deleted_counts,
+            "tables_cleared": len([t for t in deleted_counts.values() if t.get('status') == 'success'])
+        }
+        
+    except Exception as e:
+        print(f"❌ Database reset failed: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Database reset failed: {str(e)}",
+            "error": str(e)
+        }
+
 # Serve static background images (NEW!)
 from fastapi.responses import FileResponse
 import os.path
