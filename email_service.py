@@ -1,16 +1,11 @@
 """
-Email Service - Resend Integration (Updated for Hosted Agents)
-==============================================================
+Email Service - Resend Integration (User-Preferred Format)
+===========================================================
 
 Sends emails using Resend API.
-Free tier: 3,000 emails/month
+Format: Numbered steps with hyperlinks (no big buttons)
 
-Setup:
-1. Sign up at https://resend.com
-2. Get API key
-3. Set RESEND_API_KEY environment variable
-
-Updated: November 22, 2025 - Improved UX with prominent dashboard
+Updated: November 22, 2025 - User-preferred format
 """
 
 import os
@@ -25,10 +20,13 @@ BASE_URL = os.getenv("BASE_URL", "https://nike-rocket-api-production.up.railway.
 
 def send_welcome_email(to_email: str, api_key: str) -> bool:
     """
-    Send welcome email with API key and setup link (HOSTED AGENTS)
+    Send welcome email with API key and setup instructions
     
-    This is the main email for new signups with hosted agents.
-    User gets their API key and a link to /setup page.
+    Format:
+    1. Your API Key
+    2. Setup Agent
+    3. View Dashboard
+    4. Access anytime at /login
     
     Args:
         to_email: User's email address
@@ -46,7 +44,7 @@ def send_welcome_email(to_email: str, api_key: str) -> bool:
     dashboard_link = f"{BASE_URL}/dashboard?key={api_key}"
     login_link = f"{BASE_URL}/login"
     
-    # Email HTML - IMPROVED VERSION
+    # Email HTML - User's Preferred Format
     html_content = f"""
 <!DOCTYPE html>
 <html>
@@ -77,7 +75,7 @@ def send_welcome_email(to_email: str, api_key: str) -> bool:
                     <tr>
                         <td style="padding: 40px 30px;">
                             
-                            <!-- Your API Key Section -->
+                            <!-- Step 1: Your API Key -->
                             <h2 style="margin: 0 0 20px 0; color: #667eea; font-size: 20px;">
                                 Your API Key
                             </h2>
@@ -85,99 +83,69 @@ def send_welcome_email(to_email: str, api_key: str) -> bool:
                                 As requested, here's your $NIKEPIG's Massive Rocket API key:
                             </p>
                             
-                            <div style="background: #f9fafb; border: 2px dashed #d1d5db; border-radius: 8px; padding: 20px; margin-bottom: 30px;">
+                            <div style="background: #f9fafb; border: 2px dashed #d1d5db; border-radius: 8px; padding: 20px; margin-bottom: 25px;">
                                 <code style="font-family: 'Courier New', monospace; font-size: 14px; color: #667eea; word-break: break-all; display: block; text-align: center;">
                                     {api_key}
                                 </code>
                             </div>
                             
-                            <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; border-radius: 6px; margin-bottom: 30px;">
+                            <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; border-radius: 6px; margin-bottom: 35px;">
                                 <p style="margin: 0; color: #92400e; font-size: 13px;">
                                     🔒 <strong>Security Reminder:</strong> Never share your API key with anyone. If you believe your key has been compromised, contact support immediately.
                                 </p>
                             </div>
                             
-                            <!-- BIG DASHBOARD BUTTON (IMPROVED!) -->
-                            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 30px;">
-                                <tr>
-                                    <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 30px; text-align: center; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);">
-                                        <p style="margin: 0 0 15px 0; color: white; font-size: 20px; font-weight: bold;">
-                                            📊 View Your Dashboard
-                                        </p>
-                                        <a href="{dashboard_link}" style="display: inline-block; background: white; color: #667eea; padding: 18px 50px; border-radius: 10px; text-decoration: none; font-weight: bold; font-size: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                                            📈 Open Dashboard Now
+                            <!-- Numbered Steps -->
+                            <div style="margin-bottom: 30px;">
+                                
+                                <!-- Step 1: Setup Agent -->
+                                <div style="padding: 18px 0; border-bottom: 1px solid #e5e7eb;">
+                                    <p style="margin: 0 0 8px 0; color: #374151; font-size: 15px; font-weight: 600;">
+                                        <strong style="color: #667eea;">1.</strong> Setup Your Trading Agent
+                                    </p>
+                                    <p style="margin: 0 0 8px 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+                                        Configure your automated trading agent with your Kraken API credentials. Takes 2 minutes, no technical skills required.
+                                    </p>
+                                    <p style="margin: 0;">
+                                        <a href="{setup_link}" style="color: #667eea; text-decoration: none; font-weight: 600; font-size: 14px;">
+                                            → Click here to setup agent
                                         </a>
-                                        <p style="margin: 15px 0 0 0; color: rgba(255,255,255,0.95); font-size: 14px; font-weight: 600;">
-                                            💡 <strong>Tip:</strong> Bookmark this link for easy access!
-                                        </p>
-                                    </td>
-                                </tr>
-                            </table>
-                            
-                            <!-- Quick Setup Notice -->
-                            <div style="background: #d1fae5; border-left: 4px solid #10b981; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
-                                <p style="margin: 0 0 10px 0; color: #065f46; font-size: 16px; font-weight: bold;">
-                                    ⚡ Quick Setup (2 minutes):
-                                </p>
-                                <p style="margin: 0 0 15px 0; color: #047857; font-size: 14px;">
-                                    Click the button below to set up your automated trading agent. No technical skills required!
-                                </p>
-                                <a href="{setup_link}" style="display: inline-block; background: #10b981; color: white; padding: 14px 35px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);">
-                                    🛠️ Setup Agent
-                                </a>
-                            </div>
-                            
-                            <!-- What Happens Next (KEPT!) -->
-                            <h3 style="margin: 0 0 15px 0; color: #374151; font-size: 18px; font-weight: 600;">
-                                What happens next:
-                            </h3>
-                            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 30px;">
-                                <tr>
-                                    <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb;">
-                                        <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.6;">
-                                            <strong>1.</strong> Click the setup button above - Opens your personalized setup page
-                                        </p>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb;">
-                                        <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.6;">
-                                            <strong>2.</strong> Enter your Kraken API credentials - Takes 30 seconds
-                                        </p>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb;">
-                                        <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.6;">
-                                            <strong>3.</strong> Your agent starts automatically - Begins following trading signals
-                                        </p>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 12px 0;">
-                                        <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.6;">
-                                            <strong>4.</strong> Track performance on your dashboard - View profits in real-time
-                                        </p>
-                                    </td>
-                                </tr>
-                            </table>
-                            
-                            <!-- RETURNING USERS SECTION (NEW!) -->
-                            <div style="background: #ede9fe; border-left: 4px solid #7c3aed; padding: 20px; border-radius: 8px;">
-                                <p style="margin: 0 0 10px 0; color: #5b21b6; font-size: 16px; font-weight: bold;">
-                                    🔖 For Future Access:
-                                </p>
-                                <p style="margin: 0 0 10px 0; color: #6b21a8; font-size: 14px; line-height: 1.6;">
-                                    <strong>Bookmark your dashboard link above</strong>, or use our login page anytime:
-                                </p>
-                                <p style="margin: 0 0 15px 0; color: #6b21a8; font-size: 14px;">
-                                    <a href="{login_link}" style="color: #7c3aed; text-decoration: none; font-weight: 600; font-size: 15px;">
-                                        🔗 {login_link}
-                                    </a>
-                                </p>
-                                <p style="margin: 0; color: #6b21a8; font-size: 13px;">
-                                    💡 Just enter your API key to access your dashboard from any device!
-                                </p>
+                                    </p>
+                                </div>
+                                
+                                <!-- Step 2: View Dashboard -->
+                                <div style="padding: 18px 0; border-bottom: 1px solid #e5e7eb;">
+                                    <p style="margin: 0 0 8px 0; color: #374151; font-size: 15px; font-weight: 600;">
+                                        <strong style="color: #667eea;">2.</strong> View Your Dashboard
+                                    </p>
+                                    <p style="margin: 0 0 8px 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+                                        Track your trading performance in real-time. View profits, trades, and agent status.
+                                    </p>
+                                    <p style="margin: 0 0 5px 0;">
+                                        <a href="{dashboard_link}" style="color: #667eea; text-decoration: none; font-weight: 600; font-size: 14px;">
+                                            → Click here to view dashboard
+                                        </a>
+                                    </p>
+                                    <p style="margin: 0; color: #9ca3af; font-size: 12px; font-style: italic;">
+                                        💡 Tip: Bookmark this link for easy access!
+                                    </p>
+                                </div>
+                                
+                                <!-- Step 3: Access Anytime -->
+                                <div style="padding: 18px 0;">
+                                    <p style="margin: 0 0 8px 0; color: #374151; font-size: 15px; font-weight: 600;">
+                                        <strong style="color: #667eea;">3.</strong> Access Anytime at:
+                                    </p>
+                                    <p style="margin: 0 0 8px 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+                                        Lost this email? You can always access your dashboard by entering your API key at:
+                                    </p>
+                                    <p style="margin: 0;">
+                                        <a href="{login_link}" style="color: #667eea; text-decoration: none; font-weight: 600; font-size: 14px;">
+                                            {login_link}
+                                        </a>
+                                    </p>
+                                </div>
+                                
                             </div>
                             
                         </td>
@@ -215,25 +183,20 @@ Your API Key:
 
 🔒 Security Reminder: Never share your API key with anyone.
 
-📊 VIEW YOUR DASHBOARD:
-{dashboard_link}
+Next Steps:
 
-💡 Bookmark this link for easy access!
+1. Setup Your Trading Agent
+   Configure your automated trading agent with your Kraken credentials.
+   → {setup_link}
 
-⚡ Quick Setup (2 minutes):
-{setup_link}
+2. View Your Dashboard
+   Track your trading performance in real-time.
+   → {dashboard_link}
+   💡 Tip: Bookmark this link!
 
-What happens next:
-1. Click the setup button above - Opens your personalized setup page
-2. Enter your Kraken API credentials - Takes 30 seconds
-3. Your agent starts automatically - Begins following trading signals
-4. Track performance on your dashboard - View profits in real-time
-
-🔖 FOR FUTURE ACCESS:
-Bookmark your dashboard link above, or use our login page:
-{login_link}
-
-Just enter your API key to access your dashboard from any device!
+3. Access Anytime at:
+   {login_link}
+   Enter your API key to access your dashboard from any device.
 
 Questions? Need help? Contact us anytime.
 
@@ -324,32 +287,27 @@ def send_api_key_resend_email(to_email: str, api_key: str) -> bool:
                             
                             <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; border-radius: 6px; margin-bottom: 30px;">
                                 <p style="margin: 0; color: #92400e; font-size: 13px;">
-                                    🔒 <strong>Security Reminder:</strong> Never share your API key with anyone. If you believe your key has been compromised, contact support immediately.
+                                    🔒 <strong>Security Reminder:</strong> Never share your API key with anyone.
                                 </p>
                             </div>
                             
-                            <!-- Dashboard Button -->
-                            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 20px;">
-                                <tr>
-                                    <td style="text-align: center;">
-                                        <a href="{dashboard_link}" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px 40px; border-radius: 10px; text-decoration: none; font-weight: bold; font-size: 16px; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3); margin: 10px;">
-                                            📊 View Dashboard
-                                        </a>
-                                        <a href="{setup_link}" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 16px 40px; border-radius: 10px; text-decoration: none; font-weight: bold; font-size: 16px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); margin: 10px;">
-                                            ⚙️ Setup Agent
-                                        </a>
-                                    </td>
-                                </tr>
-                            </table>
-                            
-                            <!-- Login Info -->
-                            <div style="background: #ede9fe; border-left: 4px solid #7c3aed; padding: 15px; border-radius: 8px; margin-top: 25px;">
-                                <p style="margin: 0 0 8px 0; color: #5b21b6; font-size: 14px; font-weight: 600;">
-                                    🔖 Access anytime at:
+                            <div style="margin-bottom: 20px;">
+                                <p style="margin: 0 0 10px 0; color: #374151; font-size: 14px; font-weight: 600;">
+                                    Quick Links:
                                 </p>
-                                <p style="margin: 0; color: #6b21a8; font-size: 13px;">
-                                    <a href="{login_link}" style="color: #7c3aed; text-decoration: none; font-weight: 600;">
-                                        {login_link}
+                                <p style="margin: 0 0 8px 0;">
+                                    <a href="{dashboard_link}" style="color: #667eea; text-decoration: none; font-weight: 600; font-size: 14px;">
+                                        → View Dashboard
+                                    </a>
+                                </p>
+                                <p style="margin: 0 0 8px 0;">
+                                    <a href="{setup_link}" style="color: #667eea; text-decoration: none; font-weight: 600; font-size: 14px;">
+                                        → Setup Agent
+                                    </a>
+                                </p>
+                                <p style="margin: 0;">
+                                    <a href="{login_link}" style="color: #667eea; text-decoration: none; font-weight: 600; font-size: 14px;">
+                                        → Access Anytime: {login_link}
                                     </a>
                                 </p>
                             </div>
@@ -381,10 +339,10 @@ As requested, here's your API key:
 
 🔒 Security Reminder: Never share your API key with anyone.
 
-View Dashboard: {dashboard_link}
-Setup Agent: {setup_link}
-
-🔖 Access anytime at: {login_link}
+Quick Links:
+→ View Dashboard: {dashboard_link}
+→ Setup Agent: {setup_link}
+→ Access Anytime: {login_link}
 
 If you didn't request this email, please ignore it or contact support.
     """
@@ -419,24 +377,18 @@ If you didn't request this email, please ignore it or contact support.
 
 # Keep old functions for backward compatibility but mark as deprecated
 def send_verification_email(to_email: str, verification_token: str) -> bool:
-    """
-    DEPRECATED: Use send_welcome_email() instead for hosted agents flow
-    """
+    """DEPRECATED: Use send_welcome_email() instead"""
     print("⚠️ send_verification_email() is deprecated - use send_welcome_email() instead")
     return False
 
 
 def send_api_key_email(to_email: str, api_key: str) -> bool:
-    """
-    DEPRECATED: Use send_welcome_email() instead for hosted agents flow
-    """
+    """DEPRECATED: Use send_welcome_email() instead"""
     print("⚠️ send_api_key_email() is deprecated - use send_welcome_email() instead")
     return send_welcome_email(to_email, api_key)
 
 
 def send_password_reset_email(to_email: str, reset_token: str) -> bool:
-    """
-    DEPRECATED: Not needed for current flow
-    """
+    """DEPRECATED: Not needed for current flow"""
     print("⚠️ send_password_reset_email() is deprecated")
     return False
