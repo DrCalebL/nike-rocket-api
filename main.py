@@ -1,10 +1,10 @@
 """
 Nike Rocket Follower System - Main API
 =======================================
-Updated main.py with hosted agents system.
+Updated main.py with hosted agents system + Admin Dashboard.
 
 Author: Nike Rocket Team
-Updated: November 21, 2025
+Updated: November 22, 2025
 """
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +19,16 @@ from follower_endpoints import router as follower_router
 # Import portfolio system
 from portfolio_models import init_portfolio_db
 from portfolio_api import router as portfolio_router
+
+# Import admin dashboard
+from admin_dashboard import (
+    get_all_users_with_status,
+    get_recent_errors,
+    get_stats_summary,
+    generate_admin_html,
+    create_error_logs_table,
+    ADMIN_PASSWORD
+)
 
 # Initialize FastAPI
 app = FastAPI(
@@ -58,12 +68,13 @@ app.include_router(portfolio_router, tags=["portfolio"])
 async def root():
     return {
         "status": "online",
-        "service": "Nike Rocket Follower API",
+        "service": "$NIKEPIG's Massive Rocket API",
         "version": "1.0.0",
         "endpoints": {
             "signup": "/signup",
             "setup": "/setup",
             "dashboard": "/dashboard",
+            "admin": "/admin?password=xxx",
             "broadcast": "/api/broadcast-signal",
             "latest_signal": "/api/latest-signal",
             "report_pnl": "/api/report-pnl",
@@ -78,14 +89,173 @@ async def root():
             "portfolio_deposit": "/api/portfolio/deposit",
             "portfolio_withdraw": "/api/portfolio/withdraw",
             "pay": "/api/pay/{api_key}",
-            "webhook": "/api/payments/webhook",
-            "admin": "/api/admin/stats"
+            "webhook": "/api/payments/webhook"
         }
     }
 
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+# Admin Dashboard (NEW!)
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_dashboard(password: str = ""):
+    """
+    Admin dashboard to monitor hosted follower agents
+    
+    Access: /admin?password=YOUR_ADMIN_PASSWORD
+    
+    Shows:
+    - User signups
+    - Setup completion rates
+    - Active agents
+    - Trading activity
+    - Error logs
+    """
+    # Check password
+    if password != ADMIN_PASSWORD:
+        return HTMLResponse("""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>$NIKEPIG Admin Access</title>
+                <style>
+                    body {{
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        height: 100vh;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        margin: 0;
+                    }}
+                    .login-box {{
+                        background: white;
+                        padding: 40px;
+                        border-radius: 12px;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+                        text-align: center;
+                        min-width: 300px;
+                    }}
+                    h1 {{
+                        color: #667eea;
+                        margin-bottom: 10px;
+                        font-size: 24px;
+                    }}
+                    .subtitle {{
+                        color: #666;
+                        font-size: 14px;
+                        margin-bottom: 25px;
+                    }}
+                    input {{
+                        padding: 12px;
+                        border: 2px solid #e5e7eb;
+                        border-radius: 8px;
+                        width: 100%;
+                        font-size: 14px;
+                        box-sizing: border-box;
+                    }}
+                    input:focus {{
+                        outline: none;
+                        border-color: #667eea;
+                    }}
+                    button {{
+                        padding: 12px 24px;
+                        background: #667eea;
+                        color: white;
+                        border: none;
+                        border-radius: 8px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        margin-top: 15px;
+                        width: 100%;
+                        font-size: 14px;
+                    }}
+                    button:hover {{
+                        background: #5568d3;
+                    }}
+                    .error {{
+                        color: #ef4444;
+                        margin-top: 15px;
+                        font-size: 14px;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="login-box">
+                    <h1>🔒 $NIKEPIG Admin</h1>
+                    <p class="subtitle">Hosted Follower Agents Dashboard</p>
+                    <form method="GET">
+                        <input 
+                            type="password" 
+                            name="password" 
+                            placeholder="Enter admin password" 
+                            required 
+                            autofocus
+                        >
+                        <button type="submit">Access Dashboard</button>
+                    </form>
+                    """ + (f"""<p class="error">❌ Invalid password</p>""" if password else "") + """
+                </div>
+            </body>
+            </html>
+        """)
+    
+    # Ensure error_logs table exists
+    try:
+        create_error_logs_table()
+    except Exception as e:
+        print(f"Note: Error logs table setup - {e}")
+    
+    # Get dashboard data
+    try:
+        users = get_all_users_with_status()
+        errors = get_recent_errors(hours=24)
+        stats = get_stats_summary()
+        
+        # Generate and return HTML
+        html = generate_admin_html(users, errors, stats)
+        return HTMLResponse(html)
+        
+    except Exception as e:
+        return HTMLResponse(f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Admin Dashboard Error</title>
+                <style>
+                    body {{
+                        font-family: Arial, sans-serif;
+                        padding: 40px;
+                        background: #f5f5f5;
+                    }}
+                    .error-box {{
+                        background: white;
+                        padding: 30px;
+                        border-radius: 12px;
+                        border-left: 4px solid #ef4444;
+                        max-width: 600px;
+                        margin: 0 auto;
+                    }}
+                    h1 {{ color: #ef4444; }}
+                    code {{
+                        background: #f9fafb;
+                        padding: 2px 6px;
+                        border-radius: 4px;
+                        font-family: monospace;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="error-box">
+                    <h1>⚠️ Dashboard Error</h1>
+                    <p><strong>Error:</strong> {str(e)}</p>
+                    <p>Make sure <code>admin_dashboard.py</code> is in your repo and DATABASE_URL is set.</p>
+                </div>
+            </body>
+            </html>
+        """)
 
 # Serve static background images (NEW!)
 from fastapi.responses import FileResponse
