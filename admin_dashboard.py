@@ -1,7 +1,7 @@
 """
-Admin Dashboard - Log-Based Monitoring (FIXED VERSION)
-=======================================================
-Fixed import error - function renamed to match main.py expectations
+Admin Dashboard - COMPLETE VERSION with Trades Table
+=====================================================
+Full monitoring + trading data + profit tracking
 """
 
 import os
@@ -17,20 +17,17 @@ def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
 
 
-def check_column_exists(table: str, column: str) -> bool:
-    """Check if a column exists in a table"""
+def table_exists(table_name: str) -> bool:
+    """Check if a table exists"""
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        
         cur.execute("""
             SELECT EXISTS (
-                SELECT 1 
-                FROM information_schema.columns 
-                WHERE table_name = %s AND column_name = %s
+                SELECT FROM information_schema.tables 
+                WHERE table_name = %s
             )
-        """, (table, column))
-        
+        """, (table_name,))
         exists = cur.fetchone()[0]
         cur.close()
         conn.close()
@@ -85,14 +82,16 @@ def get_agent_status(api_key: str, cur) -> Dict:
     
     recent_auth_failures = cur.fetchone()[0]
     
-    # Check for any trades
-    cur.execute("""
-        SELECT COUNT(*) 
-        FROM trades 
-        WHERE api_key = %s
-    """, (api_key,))
-    
-    total_trades = cur.fetchone()[0]
+    # Check for any trades (if table exists)
+    if table_exists('trades'):
+        cur.execute("""
+            SELECT COUNT(*) 
+            FROM trades 
+            WHERE api_key = %s
+        """, (api_key,))
+        total_trades = cur.fetchone()[0]
+    else:
+        total_trades = 0
     
     # Deduce status
     now = datetime.utcnow()
@@ -150,32 +149,52 @@ def get_agent_status(api_key: str, cur) -> Dict:
 
 
 def get_all_users_with_status() -> List[Dict]:
-    """Get all users with intelligent status deduction"""
+    """Get all users with intelligent status deduction + trade data"""
     conn = get_db_connection()
     cur = conn.cursor()
     
-    query = """
-    SELECT 
-        u.email,
-        u.api_key,
-        u.created_at,
-        COALESCE((SELECT COUNT(*) FROM trades t WHERE t.api_key = u.api_key), 0) as total_trades,
-        (SELECT MAX(timestamp) FROM trades t WHERE t.api_key = u.api_key) as last_trade_at,
-        COALESCE((SELECT SUM(profit) FROM trades t WHERE t.api_key = u.api_key), 0) as total_profit,
-        (SELECT COUNT(*) FROM error_logs e WHERE e.api_key = u.api_key AND e.timestamp > NOW() - INTERVAL '24 hours') as recent_errors
-    FROM users u
-    ORDER BY u.created_at DESC
-    """
-    
-    cur.execute(query)
-    rows = cur.fetchall()
+    # Get all users
+    cur.execute("""
+        SELECT email, api_key, created_at
+        FROM users
+        ORDER BY created_at DESC
+    """)
     
     users = []
-    for row in rows:
-        email, api_key, created_at, total_trades, last_trade_at, total_profit, recent_errors = row
+    for row in cur.fetchall():
+        email, api_key, created_at = row
         
-        # Get intelligent agent status
+        # Get agent status from logs
         agent_status = get_agent_status(api_key, cur)
+        
+        # Get trade data (if table exists)
+        if table_exists('trades'):
+            cur.execute("""
+                SELECT 
+                    COUNT(*) as total_trades,
+                    MAX(timestamp) as last_trade_at,
+                    COALESCE(SUM(profit), 0) as total_profit
+                FROM trades 
+                WHERE api_key = %s
+            """, (api_key,))
+            
+            trade_row = cur.fetchone()
+            total_trades = trade_row[0] if trade_row else 0
+            last_trade_at = trade_row[1] if trade_row else None
+            total_profit = float(trade_row[2]) if trade_row else 0.0
+        else:
+            total_trades = 0
+            last_trade_at = None
+            total_profit = 0.0
+        
+        # Get error count
+        cur.execute("""
+            SELECT COUNT(*) 
+            FROM error_logs 
+            WHERE api_key = %s 
+            AND timestamp > NOW() - INTERVAL '24 hours'
+        """, (api_key,))
+        recent_errors = cur.fetchone()[0]
         
         # Calculate time since last trade
         last_trade_str = "Never"
@@ -199,7 +218,7 @@ def get_all_users_with_status() -> List[Dict]:
             'total_trades': total_trades,
             'last_trade_at': last_trade_at,
             'last_trade_str': last_trade_str,
-            'total_profit': float(total_profit),
+            'total_profit': total_profit,
             'recent_errors': recent_errors
         })
     
@@ -213,23 +232,14 @@ def get_recent_errors(hours: int = 24) -> List[Dict]:
     conn = get_db_connection()
     cur = conn.cursor()
     
-    cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'error_logs')")
-    if not cur.fetchone()[0]:
-        cur.close()
-        conn.close()
-        return []
-    
-    query = """
-    SELECT e.timestamp, e.api_key, e.error_type, e.error_message, u.email
-    FROM error_logs e
-    LEFT JOIN users u ON e.api_key = u.api_key
-    WHERE e.timestamp > NOW() - INTERVAL '%s hours'
-    ORDER BY e.timestamp DESC
-    LIMIT 50
-    """
-    
-    cur.execute(query, (hours,))
-    rows = cur.fetchall()
+    cur.execute("""
+        SELECT e.timestamp, e.api_key, e.error_type, e.error_message, u.email
+        FROM error_logs e
+        LEFT JOIN users u ON e.api_key = u.api_key
+        WHERE e.timestamp > NOW() - INTERVAL '%s hours'
+        ORDER BY e.timestamp DESC
+        LIMIT 50
+    """, (hours,))
     
     errors = [{
         'timestamp': row[0],
@@ -237,7 +247,7 @@ def get_recent_errors(hours: int = 24) -> List[Dict]:
         'error_type': row[2],
         'error_message': row[3],
         'email': row[4] or 'Unknown'
-    } for row in rows]
+    } for row in cur.fetchall()]
     
     cur.close()
     conn.close()
@@ -269,11 +279,16 @@ def get_stats_summary() -> Dict:
     """)
     active_now = cur.fetchone()[0]
     
-    cur.execute("SELECT COUNT(*) FROM trades")
-    total_trades = cur.fetchone()[0]
-    
-    cur.execute("SELECT COALESCE(SUM(profit), 0) FROM trades")
-    total_profit = float(cur.fetchone()[0])
+    # Get trade stats (if table exists)
+    if table_exists('trades'):
+        cur.execute("SELECT COUNT(*) FROM trades")
+        total_trades = cur.fetchone()[0]
+        
+        cur.execute("SELECT COALESCE(SUM(profit), 0) FROM trades")
+        total_profit = float(cur.fetchone()[0])
+    else:
+        total_trades = 0
+        total_profit = 0.0
     
     # Count recent errors
     cur.execute("""
@@ -301,7 +316,7 @@ def get_stats_summary() -> Dict:
 
 
 def create_error_logs_table():
-    """Create error_logs and agent_logs tables - FIXED NAME"""
+    """Create ALL necessary tables: error_logs, agent_logs, AND trades"""
     conn = get_db_connection()
     cur = conn.cursor()
     
@@ -328,12 +343,37 @@ def create_error_logs_table():
         )
     """)
     
-    # Indexes
+    # Trades table (NEW!)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS trades (
+            id SERIAL PRIMARY KEY,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            api_key VARCHAR(100),
+            signal_id VARCHAR(100),
+            symbol VARCHAR(20),
+            action VARCHAR(10),
+            entry_price DECIMAL(20, 8),
+            exit_price DECIMAL(20, 8),
+            quantity DECIMAL(20, 8),
+            profit DECIMAL(20, 8),
+            status VARCHAR(20),
+            exchange VARCHAR(50)
+        )
+    """)
+    
+    # Indexes for error_logs
     cur.execute("CREATE INDEX IF NOT EXISTS idx_error_logs_timestamp ON error_logs(timestamp DESC)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_error_logs_api_key ON error_logs(api_key)")
+    
+    # Indexes for agent_logs
     cur.execute("CREATE INDEX IF NOT EXISTS idx_agent_logs_timestamp ON agent_logs(timestamp DESC)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_agent_logs_api_key ON agent_logs(api_key)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_agent_logs_event_type ON agent_logs(event_type)")
+    
+    # Indexes for trades
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp DESC)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_trades_api_key ON trades(api_key)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_trades_signal_id ON trades(signal_id)")
     
     conn.commit()
     cur.close()
@@ -341,7 +381,7 @@ def create_error_logs_table():
 
 
 def log_error(api_key: str, error_type: str, error_message: str, context: Optional[Dict] = None):
-    """Log error"""
+    """Log error to error_logs table"""
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -361,7 +401,7 @@ def log_error(api_key: str, error_type: str, error_message: str, context: Option
 
 def log_agent_event(api_key: str, event_type: str, event_data: Optional[Dict] = None):
     """
-    Log agent events
+    Log agent events to agent_logs table
     
     Event types:
     - 'heartbeat': Agent is alive
@@ -387,8 +427,45 @@ def log_agent_event(api_key: str, event_type: str, event_data: Optional[Dict] = 
         print(f"❌ Failed to log agent event: {e}")
 
 
+def log_trade(api_key: str, signal_id: str, symbol: str, action: str, 
+              entry_price: float, exit_price: float, quantity: float, 
+              profit: float, status: str = 'completed', exchange: str = 'kraken'):
+    """
+    Log completed trade to trades table
+    
+    Args:
+        api_key: User's API key
+        signal_id: Signal ID from Nike Rocket
+        symbol: Trading pair (e.g., 'ADAUSDT')
+        action: 'BUY' or 'SELL'
+        entry_price: Entry price
+        exit_price: Exit price (TP or SL)
+        quantity: Position size
+        profit: Profit/loss in USD
+        status: 'completed', 'stopped_out', 'took_profit'
+        exchange: 'kraken', 'binance', etc.
+    """
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("""
+            INSERT INTO trades 
+            (api_key, signal_id, symbol, action, entry_price, exit_price, 
+             quantity, profit, status, exchange)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (api_key, signal_id, symbol, action, entry_price, exit_price, 
+              quantity, profit, status, exchange))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"❌ Failed to log trade: {e}")
+
+
 def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict) -> str:
-    """Generate admin dashboard HTML"""
+    """Generate admin dashboard HTML with full stats"""
     
     # User rows
     user_rows = ""
@@ -435,7 +512,7 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict) -> s
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>$NIKEPIG Admin - Log-Based Monitoring</title>
+    <title>$NIKEPIG Admin - Complete Dashboard</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }}
@@ -480,10 +557,10 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict) -> s
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 $NIKEPIG's Massive Rocket - Admin Dashboard</h1>
-            <p class="subtitle">Log-Based Monitoring | Updated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
+            <h1>🚀 $NIKEPIG's Massive Rocket - Complete Dashboard</h1>
+            <p class="subtitle">Agent Monitoring + Trading Data | Updated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
             <div class="security-note">
-                🔒 <strong>Smart Monitoring:</strong> Status deduced from agent logs & errors. NO credentials stored! Hover over status badges for details.
+                🔒 <strong>Smart Monitoring:</strong> Status from logs, profits from trades table. NO credentials stored!
             </div>
         </div>
         
