@@ -140,7 +140,7 @@ async def portfolio_dashboard(request: Request):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nike Rocket - Portfolio Dashboard</title>
+    <title>$NIKEPIG's Massive Rocket - Portfolio Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
@@ -376,7 +376,7 @@ async def portfolio_dashboard(request: Request):
     <div class="container">
         <!-- Login Screen -->
         <div id="login-screen" class="login-screen">
-            <h1>🚀 Nike Rocket</h1>
+            <h1>🚀 $NIKEPIG's Massive Rocket</h1>
             <p>Portfolio Performance Tracker</p>
             
             <div class="input-group">
@@ -396,7 +396,7 @@ async def portfolio_dashboard(request: Request):
         
         <!-- Setup Wizard -->
         <div id="setup-wizard" class="setup-wizard" style="display: none;">
-            <h2>🎯 Welcome to Nike Rocket!</h2>
+            <h2>🎯 Welcome to $NIKEPIG's Massive Rocket!</h2>
             <p>Let's set up your portfolio tracking in 30 seconds.</p>
             
             <div class="input-group">
@@ -419,7 +419,7 @@ async def portfolio_dashboard(request: Request):
             <button class="logout-btn" onclick="logout()">Change API Key</button>
             
             <div class="hero">
-                <h1>🚀 NIKE ROCKET PERFORMANCE</h1>
+                <h1>🚀 $NIKEPIG'S MASSIVE ROCKET PERFORMANCE</h1>
                 
                 <div class="period-selector">
                     <select id="period-selector" onchange="changePeriod()">
@@ -451,7 +451,7 @@ async def portfolio_dashboard(request: Request):
                             gap: 8px;
                             box-shadow: 0 4px 12px rgba(29, 161, 242, 0.3);
                         ">
-                            <span>𝕏</span> Share to X/Twitter
+                            <span>𝕏</span> Share to X (+ Download Image)
                         </button>
                         
                         <button onclick="copyShareLink()" style="
@@ -810,24 +810,133 @@ async def portfolio_dashboard(request: Request):
             const profit = document.getElementById('total-profit').textContent;
             const roi = document.getElementById('roi').textContent;
             const period = document.getElementById('period-selector').value;
-            const trades = document.getElementById('total-trades').textContent;
-            const profitFactor = document.getElementById('profit-factor').textContent;
             
             const periodLabels = {{
-                '7d': '7-Day',
-                '30d': '30-Day',
-                '90d': '90-Day',
-                'all': 'All-Time'
+                '7d': '7 days',
+                '30d': '30 days',
+                '90d': '90 days',
+                'all': 'all-time'
             }};
             
-            // SUCCINCT FACTUAL CAPTION
-            const text = `$NIKEPIG's Massive Rocket ${{periodLabels[period]}} Performance Card
+            // Generate the performance card image first
+            generateImageForShare(profit, roi, period, periodLabels[period], (imageBlob) => {{
+                // Download the image automatically
+                const url = URL.createObjectURL(imageBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `nikepig-performance-${{period}}.png`;
+                a.click();
+                URL.revokeObjectURL(url);
+                
+                // Try to copy image to clipboard (modern browsers only)
+                if (navigator.clipboard && navigator.clipboard.write) {{
+                    const item = new ClipboardItem({{ 'image/png': imageBlob }});
+                    navigator.clipboard.write([item]).then(() => {{
+                        console.log('✅ Image copied to clipboard!');
+                    }}).catch(err => {{
+                        console.log('⚠️ Could not copy to clipboard:', err);
+                    }});
+                }}
+                
+                // Open Twitter with caption
+                const text = `$NIKEPIG's Massive Rocket ${{periodLabels[period]}} Performance Card
 
 Profit: ${{profit}}
 ROI: ${{roi}}`;
+                
+                const twitterUrl = `https://twitter.com/intent/tweet?text=${{encodeURIComponent(text)}}`;
+                
+                // Show helpful message then open Twitter
+                setTimeout(() => {{
+                    alert('📸 Performance card downloaded!\\n\\n💡 Tip: The image may be in your clipboard - just paste it into your tweet!\\n\\nOr click "Add photos" to attach the downloaded image.');
+                    window.open(twitterUrl, '_blank', 'width=600,height=400');
+                }}, 500);
+            }});
+        }}
+        
+        function generateImageForShare(profit, roi, period, periodLabel, callback) {{
+            // Create canvas with same specs as downloadPerformanceCard
+            const canvas = document.createElement('canvas');
+            canvas.width = 1200;
+            canvas.height = 630;
+            const ctx = canvas.getContext('2d');
             
-            const twitterUrl = `https://twitter.com/intent/tweet?text=${{encodeURIComponent(text)}}`;
-            window.open(twitterUrl, '_blank', 'width=600,height=400');
+            const backgroundUrls = {{
+                'charles': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-charles.png',
+                'casino': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-casino.png',
+                'gaming': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-gaming.png',
+                'money': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-money.png'
+            }};
+            
+            const logoUrl = 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/nikepig-logo.png';
+            
+            // Load background image
+            const bgImage = new Image();
+            bgImage.crossOrigin = 'anonymous';
+            bgImage.onload = function() {{
+                // Draw background
+                ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
+                
+                // Add overlay
+                ctx.fillStyle = 'rgba(0,0,0,0.35)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Load logo
+                const logo = new Image();
+                logo.crossOrigin = 'anonymous';
+                logo.onload = function() {{
+                    // Draw logo
+                    const logoHeight = 100;
+                    const logoWidth = (logo.width / logo.height) * logoHeight;
+                    ctx.drawImage(logo, 50, 50, logoWidth, logoHeight);
+                    
+                    // PROFIT label
+                    ctx.fillStyle = 'white';
+                    ctx.font = '40px "Bebas Neue", Impact, Arial, sans-serif';
+                    ctx.textAlign = 'left';
+                    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                    ctx.shadowBlur = 8;
+                    ctx.shadowOffsetX = 2;
+                    ctx.shadowOffsetY = 2;
+                    ctx.fillText('PROFIT', 50, 230);
+                    
+                    // Profit number
+                    ctx.fillStyle = '#00FF88';
+                    ctx.font = 'bold 140px "Bebas Neue", Impact, Arial, sans-serif';
+                    ctx.shadowBlur = 15;
+                    ctx.shadowOffsetX = 3;
+                    ctx.shadowOffsetY = 3;
+                    ctx.fillText(profit, 50, 360);
+                    
+                    // ROI label
+                    ctx.fillStyle = 'white';
+                    ctx.font = '40px "Bebas Neue", Impact, Arial, sans-serif';
+                    ctx.shadowBlur = 8;
+                    ctx.shadowOffsetX = 2;
+                    ctx.shadowOffsetY = 2;
+                    ctx.fillText('ROI', 50, 450);
+                    
+                    // ROI number
+                    const roiColor = roi.includes('+') || !roi.includes('-') ? '#00FF88' : '#FF4444';
+                    ctx.fillStyle = roiColor;
+                    ctx.font = 'bold 100px "Bebas Neue", Impact, Arial, sans-serif';
+                    ctx.shadowBlur = 12;
+                    ctx.shadowOffsetX = 3;
+                    ctx.shadowOffsetY = 3;
+                    ctx.fillText(roi, 50, 540);
+                    
+                    // "over X days"
+                    ctx.fillStyle = 'white';
+                    ctx.font = '32px Arial, sans-serif';
+                    ctx.shadowBlur = 8;
+                    ctx.fillText(`over ${{periodLabel}}`, 50, 580);
+                    
+                    // Convert to blob and callback
+                    canvas.toBlob(callback);
+                }};
+                logo.src = logoUrl;
+            }};
+            bgImage.src = backgroundUrls[selectedBackground];
         }}
         
         function copyShareLink() {{
