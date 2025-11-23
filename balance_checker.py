@@ -224,6 +224,9 @@ class BalanceChecker:
                     if response.status == 200:
                         data = await response.json()
                         
+                        # DEBUG: Log the actual response
+                        logger.info(f"🔍 Kraken Futures API Response: {json.dumps(data, indent=2)}")
+                        
                         # Get account balance
                         if "accounts" in data and len(data["accounts"]) > 0:
                             # Get balance in USD (balanceValue is the total account value)
