@@ -4,12 +4,14 @@ Nike Rocket Follower System - Main API
 Updated main.py with hosted agents system + Admin Dashboard.
 Includes automatic deposit/withdrawal detection via balance_checker.
 
+FIXED VERSION with startup_delay_seconds=30 to prevent race condition.
+
 Author: Nike Rocket Team
-Updated: November 22, 2025
+Updated: November 23, 2025 - COMPLETE VERSION
 """
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from sqlalchemy import create_engine
 import os
 import asyncio
@@ -24,6 +26,7 @@ from portfolio_models import init_portfolio_db
 from portfolio_api import router as portfolio_router
 
 # Import balance checker for automatic deposit/withdrawal detection
+# FIXED: Using the version with startup delay support
 from balance_checker import BalanceCheckerScheduler
 
 # Import admin dashboard
@@ -281,7 +284,6 @@ async def reset_database(password: str = ""):
     Returns:
         JSON with status and deleted row counts
     """
-    from fastapi import HTTPException
     
     # Check password
     if password != ADMIN_PASSWORD:
@@ -365,9 +367,6 @@ async def reset_database(password: str = ""):
         }
 
 # Serve static background images (NEW!)
-from fastapi.responses import FileResponse
-import os.path
-
 @app.get("/static/backgrounds/{filename}")
 async def get_background(filename: str):
     """Serve background images for performance cards"""
@@ -585,7 +584,7 @@ async def login_page():
             </html>
         """, status_code=200)
 
-# Portfolio Dashboard (USER-FRIENDLY VERSION)
+# Portfolio Dashboard (USER-FRIENDLY VERSION) - COMPLETE HTML!
 @app.get("/dashboard", response_class=HTMLResponse)
 async def portfolio_dashboard(request: Request):
     """Portfolio tracking dashboard with API key input"""
@@ -2055,7 +2054,7 @@ ROI: ${{roi}}`;
     
     return html
 
-# Startup event
+# Startup event - CRITICAL FIX HERE!
 @app.on_event("startup")
 async def startup_event():
     print("=" * 60)
@@ -2070,12 +2069,25 @@ async def startup_event():
     print("✅ Ready to receive signals")
     
     # Start balance checker for automatic deposit/withdrawal detection
+    # CRITICAL FIX: WITH STARTUP DELAY TO PREVENT RACE CONDITION!
     if DATABASE_URL:
         try:
             db_pool = await asyncpg.create_pool(DATABASE_URL)
-            scheduler = BalanceCheckerScheduler(db_pool, interval_minutes=60)
+            
+            # ═══════════════════════════════════════════════════════════
+            # CRITICAL FIX: Added startup_delay_seconds parameter!
+            # This prevents the "relation does not exist" error by waiting
+            # for database tables to be created before starting balance checker
+            # ═══════════════════════════════════════════════════════════
+            scheduler = BalanceCheckerScheduler(
+                db_pool, 
+                interval_minutes=60,
+                startup_delay_seconds=30  # ← CRITICAL FIX: Wait 30s!
+            )
+            
             asyncio.create_task(scheduler.start())
-            print("✅ Balance checker started (checks every 60 minutes)")
+            print("⏳ Balance checker scheduled (starts in 30 seconds)")
+            
         except Exception as e:
             print(f"⚠️ Balance checker failed to start: {e}")
     
