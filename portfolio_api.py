@@ -132,7 +132,7 @@ async def initialize_portfolio_autodetect(request: Request):
             await conn.close()
             return {
                 "status": "error",
-                "message": "⚠️ Please set up your trading agent first! Go to /setup to enter your Kraken API credentials."
+                "message": "Please set up your trading agent first."
             }
         
         # CORRECTED: Use api_key column
