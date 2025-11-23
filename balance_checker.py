@@ -1,55 +1,35 @@
 """
-Automatic Balance Checker - Detects Deposits & Withdrawals
-===========================================================
+Nike Rocket - Balance Checker
+==============================
+Automated balance monitoring and deposit/withdrawal detection.
 
-FULLY CORRECTED VERSION - Proper column names for all tables
-
-Key fixes:
-1. follower_users table (not follower_agents)
-2. Encrypted credential decryption
-3. portfolio_users uses 'api_key' column (not 'user_id')
-4. portfolio_trades uses integer 'user_id' FK to portfolio_users.id
-5. portfolio_transactions uses string 'user_id' (api_key)
+FULLY CORRECTED VERSION:
+- Uses follower_users table (not follower_agents)
+- Uses api_key column (not user_id)  
+- Uses pnl_usd column (not pnl)
+- Proper integer FK handling
 
 Author: Nike Rocket Team
-Updated: November 23, 2025 (FULLY CORRECTED)
+Updated: November 23, 2025
 """
-
 import asyncio
 import asyncpg
-from datetime import datetime, timedelta
-from decimal import Decimal, InvalidOperation
-from typing import Optional, Dict, List
-import logging
 import os
+from decimal import Decimal
+from datetime import datetime, timedelta
+import logging
 from cryptography.fernet import Fernet
 
-# Configure logging
+# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Setup encryption for decrypting Kraken credentials
+# Setup encryption
 ENCRYPTION_KEY = os.getenv("CREDENTIALS_ENCRYPTION_KEY")
 if ENCRYPTION_KEY:
     cipher = Fernet(ENCRYPTION_KEY.encode())
 else:
     cipher = None
-    logger.warning("⚠️ CREDENTIALS_ENCRYPTION_KEY not set - balance checking will fail!")
-
-
-async def table_exists(conn: asyncpg.Connection, table_name: str) -> bool:
-    """Check if a table exists in the database"""
-    try:
-        result = await conn.fetchval("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_name = $1
-            )
-        """, table_name)
-        return result
-    except Exception as e:
-        logger.error(f"Error checking if table {table_name} exists: {e}")
-        return False
 
 
 def decrypt_credentials(encrypted_key: str, encrypted_secret: str) -> tuple:
@@ -67,55 +47,52 @@ def decrypt_credentials(encrypted_key: str, encrypted_secret: str) -> tuple:
 
 
 class BalanceChecker:
-    """Automatically detects deposits and withdrawals"""
+    """
+    Monitors user Kraken balances and detects deposits/withdrawals
     
-    def __init__(self, db_pool: asyncpg.Pool, threshold: float = 10.0):
-        """
-        Args:
-            db_pool: PostgreSQL connection pool
-            threshold: Minimum balance difference to detect (default $10)
-        """
+    CORRECTED: Uses follower_users table and api_key column
+    """
+    
+    def __init__(self, db_pool):
         self.db_pool = db_pool
-        self.threshold = Decimal(str(threshold))
-    
+
+
     async def check_all_users(self):
         """
-        Check balance for all users with active agents
+        Check balance for all users with active portfolio tracking
         
-        FULLY CORRECTED with proper table and column names
+        CORRECTED: Queries follower_users table
         """
-        async with self.db_pool.acquire() as conn:
-            # Check correct tables
-            tables_to_check = ['follower_users', 'portfolio_users']
-            
-            for table in tables_to_check:
-                if not await table_exists(conn, table):
-                    logger.warning(
-                        f"⚠️ Table '{table}' does not exist yet. "
-                        f"Skipping balance check. Will retry on next interval."
+        try:
+            async with self.db_pool.acquire() as conn:
+                
+                # Check if portfolio_trades table exists (CORRECTED: graceful check)
+                table_check = await conn.fetchval("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_name = 'portfolio_trades'
                     )
-                    return  # Exit gracefully
-            
-            # Check encryption key
-            if not cipher:
-                logger.error("❌ Cannot check balances - CREDENTIALS_ENCRYPTION_KEY not set!")
-                return
-            
-            try:
-                # CORRECTED QUERY with proper column names
-                users = await conn.fetch("""
-                    SELECT DISTINCT 
-                        fu.api_key as user_api_key,
-                        fu.kraken_api_key_encrypted,
-                        fu.kraken_api_secret_encrypted
-                    FROM follower_users fu
-                    JOIN portfolio_users pu ON pu.api_key = fu.api_key
-                    WHERE fu.agent_active = true
-                    AND fu.credentials_set = true
-                    AND pu.initial_capital > 0
                 """)
                 
-                if len(users) == 0:
+                if not table_check:
+                    logger.info("✓ Portfolio trades table not yet created")
+                    return
+                
+                # CORRECTED: Query follower_users table with proper JOINs
+                users = await conn.fetch("""
+                    SELECT DISTINCT 
+                        pu.id as user_id,
+                        pu.api_key,
+                        fu.kraken_api_key_encrypted,
+                        fu.kraken_api_secret_encrypted
+                    FROM portfolio_users pu
+                    JOIN follower_users fu ON fu.api_key = pu.api_key
+                    WHERE fu.credentials_set = true
+                    AND fu.kraken_api_key_encrypted IS NOT NULL
+                    AND fu.kraken_api_secret_encrypted IS NOT NULL
+                """)
+                
+                if not users:
                     logger.info("✓ No active users to check balance for")
                     return
                 
@@ -130,88 +107,88 @@ class BalanceChecker:
                         )
                         
                         if not kraken_key or not kraken_secret:
-                            logger.warning(f"⚠️ Could not decrypt credentials for {user['user_api_key']}")
+                            logger.warning(f"⚠️  Could not decrypt credentials for {user['api_key']}")
                             continue
                         
-                        # Check balance
                         await self.check_user_balance(
-                            user['user_api_key'],
+                            user['api_key'],
                             kraken_key,
                             kraken_secret
                         )
                     except Exception as e:
-                        logger.error(f"❌ Error checking user {user['user_api_key']}: {e}")
+                        logger.error(f"Error checking user {user['api_key']}: {e}")
                         
-            except Exception as e:
-                logger.error(f"❌ Error in check_all_users: {e}")
-                import traceback
-                traceback.print_exc()
-    
+                logger.info("✅ Balance check complete. Next check in 60 minutes")
+                
+        except Exception as e:
+            logger.error(f"Error in check_all_users: {e}")
+            import traceback
+            traceback.print_exc()
+
+
     async def check_user_balance(
         self, 
-        user_api_key: str, 
+        api_key: str, 
         kraken_api_key: str, 
         kraken_api_secret: str
     ):
-        """Check balance for a specific user"""
+        """Check a single user's balance and detect changes"""
         
-        # 1. Get current Kraken balance
+        # Get current Kraken balance
         current_balance = await self.get_kraken_balance(
             kraken_api_key, 
             kraken_api_secret
         )
         
         if current_balance is None:
-            logger.warning(f"⚠️ Could not get Kraken balance for {user_api_key}")
+            logger.warning(f"Could not get Kraken balance for {api_key}")
             return
         
-        # 2. Get expected balance from database
-        expected_balance = await self.calculate_expected_balance(user_api_key)
+        # Calculate expected balance
+        expected_balance = await self.calculate_expected_balance(api_key)
         
-        # 3. Calculate difference
-        difference = current_balance - expected_balance
+        # Check for significant discrepancy (>$1)
+        discrepancy = abs(float(current_balance) - float(expected_balance))
         
-        # 4. Check if significant difference
-        if abs(difference) > self.threshold:
-            transaction_type = 'deposit' if difference > 0 else 'withdrawal'
-            amount = abs(difference)
+        if discrepancy > 1.0:
+            transaction_type = 'deposit' if current_balance > expected_balance else 'withdrawal'
+            amount = abs(current_balance - expected_balance)
             
             logger.info(
-                f"✅ Detected {transaction_type} for {user_api_key}: "
-                f"${amount:.2f} (Current: ${current_balance:.2f}, "
-                f"Expected: ${expected_balance:.2f})"
+                f"✅ Detected {transaction_type} for {api_key}: "
+                f"Expected ${expected_balance:.2f}, Actual ${current_balance:.2f}, "
+                f"Difference: ${amount:.2f}"
             )
             
-            # 5. Record transaction
+            # Record transaction
             await self.record_transaction(
-                user_api_key=user_api_key,
+                api_key=api_key,
                 transaction_type=transaction_type,
-                amount=amount,
-                balance_before=expected_balance,
-                balance_after=current_balance
+                amount=amount
             )
+        else:
+            logger.info(f"✅ User {api_key[:10]}...: Balance ${current_balance:.2f} (no change)")
         
-        # 6. Update last known balance
-        await self.update_last_known_balance(user_api_key, current_balance)
-    
+        # Update last known balance
+        await self.update_last_known_balance(api_key, current_balance)
+
+
     async def get_kraken_balance(
         self, 
         api_key: str, 
         api_secret: str
-    ) -> Optional[Decimal]:
-        """Get USDT balance from Kraken"""
+    ) -> Decimal:
+        """Get current USDT balance from Kraken"""
         try:
             import krakenex
             from pykrakenapi import KrakenAPI
             
-            # Initialize Kraken API
             kraken = krakenex.API(key=api_key, secret=api_secret)
             k = KrakenAPI(kraken)
             
-            # Get balance
             balance = k.get_account_balance()
             
-            # Get USDT balance
+            # Try USDT, ZUSD, or USD
             usdt_balance = 0
             for currency in ['USDT', 'ZUSD', 'USD']:
                 if currency in balance.index:
@@ -221,145 +198,67 @@ class BalanceChecker:
             return Decimal(str(usdt_balance))
             
         except Exception as e:
-            logger.error(f"❌ Error getting Kraken balance: {e}")
+            logger.error(f"Error getting Kraken balance: {e}")
             return None
-    
-    async def calculate_expected_balance(self, user_api_key: str) -> Decimal:
-        """Calculate expected balance based on last known balance + trades"""
+
+
+    async def calculate_expected_balance(self, api_key: str) -> Decimal:
+        """
+        Calculate expected balance based on initial capital + deposits - withdrawals + trades
+        
+        CORRECTED: Uses api_key and pnl_usd column
+        """
         async with self.db_pool.acquire() as conn:
-            # Check if portfolio_users table exists
-            if not await table_exists(conn, 'portfolio_users'):
-                logger.warning("⚠️ portfolio_users table doesn't exist")
-                return Decimal('0')
             
-            # CORRECTED: Use api_key column
-            user_data = await conn.fetchrow("""
-                SELECT last_known_balance, last_balance_check, initial_capital
-                FROM portfolio_users
+            # Get last balance check time
+            last_check = await conn.fetchval("""
+                SELECT last_balance_check 
+                FROM portfolio_users 
                 WHERE api_key = $1
-            """, user_api_key)
-            
-            if not user_data:
-                return Decimal('0')
-            
-            last_balance = Decimal(str(user_data['last_known_balance'] or 0))
-            last_check = user_data['last_balance_check']
+            """, api_key)
             
             # Check if portfolio_trades table exists
-            if not await table_exists(conn, 'portfolio_trades'):
-                return last_balance
+            table_exists = await conn.fetchval("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'portfolio_trades'
+                )
+            """)
             
-            # CORRECTED: Join through portfolio_users since portfolio_trades.user_id is integer FK
-            if last_check:
-                trades = await conn.fetch("""
-                    SELECT pt.pnl 
-                    FROM portfolio_trades pt
-                    JOIN portfolio_users pu ON pt.user_id = pu.id
-                    WHERE pu.api_key = $1 
-                    AND pt.exit_time > $2
-                """, user_api_key, last_check)
-            else:
-                trades = await conn.fetch("""
-                    SELECT pt.pnl 
-                    FROM portfolio_trades pt
-                    JOIN portfolio_users pu ON pt.user_id = pu.id
-                    WHERE pu.api_key = $1
-                """, user_api_key)
+            if not table_exists:
+                logger.info("Portfolio trades table doesn't exist yet")
+                # Just return initial capital + deposits - withdrawals
+                result = await conn.fetchrow("""
+                    SELECT 
+                        initial_capital,
+                        COALESCE(
+                            (SELECT SUM(amount) FROM portfolio_transactions 
+                             WHERE user_id = $1 AND transaction_type = 'deposit'),
+                            0
+                        ) as total_deposits,
+                        COALESCE(
+                            (SELECT SUM(amount) FROM portfolio_transactions 
+                             WHERE user_id = $1 AND transaction_type = 'withdrawal'),
+                            0
+                        ) as total_withdrawals
+                    FROM portfolio_users
+                    WHERE api_key = $1
+                """, api_key)
+                
+                if not result:
+                    return Decimal('0')
+                
+                expected = Decimal(str(result['initial_capital'])) + \
+                          Decimal(str(result['total_deposits'])) - \
+                          Decimal(str(result['total_withdrawals']))
+                
+                logger.info(f"Expected balance for {api_key[:10]}...: ${expected:.2f} (no trades yet)")
+                return expected
             
-            # Add trade profits to last balance
-            trade_pnl = sum(Decimal(str(trade['pnl'] or 0)) for trade in trades)
-            expected = last_balance + trade_pnl
-            
-            return expected
-    
-    async def record_transaction(
-        self,
-        user_api_key: str,
-        transaction_type: str,
-        amount: float,
-        balance_before: Decimal,
-        balance_after: Decimal
-    ):
-        """Record deposit or withdrawal transaction"""
-        async with self.db_pool.acquire() as conn:
-            # Check if table exists
-            if not await table_exists(conn, 'portfolio_transactions'):
-                logger.warning("⚠️ portfolio_transactions table doesn't exist - cannot record transaction")
-                return
-            
-            # portfolio_transactions.user_id is the api_key string
-            await conn.execute("""
-                INSERT INTO portfolio_transactions (
-                    user_id, 
-                    transaction_type, 
-                    amount, 
-                    balance_before, 
-                    balance_after,
-                    detection_method,
-                    notes
-                ) VALUES ($1, $2, $3, $4, $5, 'automatic', $6)
-            """, 
-                user_api_key, 
-                transaction_type, 
-                amount,
-                float(balance_before),
-                float(balance_after),
-                f'Auto-detected via balance checker on {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC'
-            )
-    
-    async def update_last_known_balance(self, user_api_key: str, balance: Decimal):
-        """Update user's last known balance and check time"""
-        async with self.db_pool.acquire() as conn:
-            # CORRECTED: Use api_key column
-            await conn.execute("""
-                UPDATE portfolio_users
-                SET last_known_balance = $2,
-                    last_balance_check = CURRENT_TIMESTAMP
-                WHERE api_key = $1
-            """, user_api_key, float(balance))
-    
-    async def get_transaction_history(
-        self, 
-        user_api_key: str, 
-        limit: int = 50
-    ) -> List[Dict]:
-        """Get transaction history for a user"""
-        async with self.db_pool.acquire() as conn:
-            # Check if table exists
-            if not await table_exists(conn, 'portfolio_transactions'):
-                return []
-            
-            # portfolio_transactions.user_id is api_key string
-            transactions = await conn.fetch("""
-                SELECT 
-                    transaction_type,
-                    amount,
-                    balance_before,
-                    balance_after,
-                    detection_method,
-                    notes,
-                    created_at
-                FROM portfolio_transactions
-                WHERE user_id = $1
-                ORDER BY created_at DESC
-                LIMIT $2
-            """, user_api_key, limit)
-            
-            return [dict(tx) for tx in transactions]
-    
-    async def get_balance_summary(self, user_api_key: str) -> Dict:
-        """Get balance summary for a user - WITH ZERO DIVISION PROTECTION"""
-        async with self.db_pool.acquire() as conn:
-            # Check if tables exist
-            if not await table_exists(conn, 'portfolio_users'):
-                return {}
-            
-            # CORRECTED: Use api_key column and JOIN for portfolio_trades
-            summary = await conn.fetchrow("""
+            # CORRECTED: Use pnl_usd column and proper JOINs
+            result = await conn.fetchrow("""
                 SELECT 
                     pu.initial_capital,
-                    pu.last_known_balance,
-                    pu.last_balance_check,
                     COALESCE(
                         (SELECT SUM(amount) FROM portfolio_transactions 
                          WHERE user_id = $1 AND transaction_type = 'deposit'),
@@ -371,127 +270,256 @@ class BalanceChecker:
                         0
                     ) as total_withdrawals,
                     COALESCE(
-                        (SELECT SUM(pt.pnl) FROM portfolio_trades pt
-                         WHERE pt.user_id = pu.id),
+                        (SELECT SUM(pt.pnl_usd) FROM portfolio_trades pt
+                         JOIN portfolio_users pu2 ON pt.user_id = pu2.id
+                         WHERE pu2.api_key = $1),
                         0
                     ) as total_profit
                 FROM portfolio_users pu
                 WHERE pu.api_key = $1
-            """, user_api_key)
+            """, api_key)
             
-            if not summary:
-                return {}
+            if not result:
+                return Decimal('0')
             
-            initial = Decimal(str(summary['initial_capital'] or 0))
-            deposits = Decimal(str(summary['total_deposits'] or 0))
-            withdrawals = Decimal(str(summary['total_withdrawals'] or 0))
-            profit = Decimal(str(summary['total_profit'] or 0))
+            expected = Decimal(str(result['initial_capital'])) + \
+                      Decimal(str(result['total_deposits'])) - \
+                      Decimal(str(result['total_withdrawals'])) + \
+                      Decimal(str(result['total_profit']))
             
-            # SAFETY CHECK: Ensure initial capital is never zero
-            if initial <= 0:
-                logger.warning(
-                    f"User {user_api_key} has invalid initial_capital: {initial}. "
-                    f"Setting to 1 to prevent division by zero."
+            logger.info(
+                f"Expected balance for {api_key[:10]}...: ${expected:.2f} "
+                f"(IC: ${result['initial_capital']:.2f}, "
+                f"Deposits: ${result['total_deposits']:.2f}, "
+                f"Withdrawals: ${result['total_withdrawals']:.2f}, "
+                f"Profit: ${result['total_profit']:.2f})"
+            )
+            
+            return expected
+
+
+    async def record_transaction(
+        self,
+        api_key: str,
+        transaction_type: str,
+        amount: Decimal
+    ):
+        """Record a deposit or withdrawal transaction"""
+        async with self.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO portfolio_transactions (
+                    user_id,
+                    transaction_type,
+                    amount,
+                    detection_method,
+                    notes
+                ) VALUES ($1, $2, $3, 'automatic', $4)
+            """,
+                api_key,
+                transaction_type,
+                float(amount),
+                f'Auto-detected {transaction_type} via balance checker'
+            )
+            
+            # Update totals in portfolio_users
+            if transaction_type == 'deposit':
+                await conn.execute("""
+                    UPDATE portfolio_users 
+                    SET total_deposits = total_deposits + $1
+                    WHERE api_key = $2
+                """, float(amount), api_key)
+            else:  # withdrawal
+                await conn.execute("""
+                    UPDATE portfolio_users 
+                    SET total_withdrawals = total_withdrawals + $1
+                    WHERE api_key = $2
+                """, float(amount), api_key)
+            
+            logger.info(f"✅ Recorded {transaction_type} of ${amount:.2f} for {api_key[:10]}...")
+
+
+    async def update_last_known_balance(self, api_key: str, balance: Decimal):
+        """Update the last known balance for a user"""
+        async with self.db_pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE portfolio_users 
+                SET last_known_balance = $1,
+                    last_balance_check = CURRENT_TIMESTAMP
+                WHERE api_key = $2
+            """, float(balance), api_key)
+
+
+    async def get_balance_summary(
+        self, 
+        api_key: str
+    ) -> dict:
+        """
+        Get comprehensive balance summary for a user
+        
+        CORRECTED: Uses api_key and pnl_usd column
+        """
+        async with self.db_pool.acquire() as conn:
+            # Check if portfolio_trades table exists
+            trades_exist = await conn.fetchval("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'portfolio_trades'
                 )
-                initial = Decimal('1')
+            """)
+            
+            if not trades_exist:
+                # Return basic summary without trades
+                result = await conn.fetchrow("""
+                    SELECT 
+                        initial_capital,
+                        COALESCE(total_deposits, 0) as total_deposits,
+                        COALESCE(total_withdrawals, 0) as total_withdrawals,
+                        last_known_balance as current_value,
+                        last_balance_check
+                    FROM portfolio_users
+                    WHERE api_key = $1
+                """, api_key)
+                
+                if not result:
+                    return None
+                
+                initial = float(result['initial_capital'] or 0)
+                deposits = float(result['total_deposits'] or 0)
+                withdrawals = float(result['total_withdrawals'] or 0)
+                current = float(result['current_value'] or initial)
+                
+                net_deposits = deposits - withdrawals
+                total_capital = initial + net_deposits
+                total_profit = current - total_capital
+                
+                return {
+                    'initial_capital': initial,
+                    'total_deposits': deposits,
+                    'total_withdrawals': withdrawals,
+                    'net_deposits': net_deposits,
+                    'total_capital': total_capital,
+                    'total_profit': total_profit,
+                    'current_value': current,
+                    'roi_on_initial': (total_profit / initial * 100) if initial > 0 else 0,
+                    'roi_on_total': (total_profit / total_capital * 100) if total_capital > 0 else 0,
+                    'last_balance_check': result['last_balance_check']
+                }
+            
+            # CORRECTED: Use pnl_usd column with proper JOINs
+            result = await conn.fetchrow("""
+                SELECT 
+                    pu.initial_capital,
+                    COALESCE(pu.total_deposits, 0) as total_deposits,
+                    COALESCE(pu.total_withdrawals, 0) as total_withdrawals,
+                    COALESCE(
+                        (SELECT SUM(pt.pnl_usd) FROM portfolio_trades pt
+                         WHERE pt.user_id = pu.id),
+                        0
+                    ) as total_profit,
+                    pu.last_known_balance as current_value,
+                    pu.last_balance_check
+                FROM portfolio_users pu
+                WHERE pu.api_key = $1
+            """, api_key)
+            
+            if not result:
+                return None
+            
+            initial = float(result['initial_capital'] or 0)
+            deposits = float(result['total_deposits'] or 0)
+            withdrawals = float(result['total_withdrawals'] or 0)
+            profit = float(result['total_profit'] or 0)
+            current = float(result['current_value'] or initial)
+            
+            # If current_value is 0 or None, recalculate from components
+            if current == 0:
+                current = initial + deposits - withdrawals + profit
             
             net_deposits = deposits - withdrawals
             total_capital = initial + net_deposits
             
-            # SAFETY CHECK: Ensure total capital is never zero
-            if total_capital <= 0:
-                logger.warning(
-                    f"User {user_api_key} has invalid total_capital: {total_capital}. "
-                    f"Setting to initial capital."
-                )
-                total_capital = initial
-            
-            current_value = total_capital + profit
-            
-            # Calculate ROI with zero division protection
-            try:
-                roi_on_initial = float((profit / initial * 100)) if initial > 0 else 0.0
-            except (ZeroDivisionError, InvalidOperation):
-                roi_on_initial = 0.0
-            
-            try:
-                roi_on_total = float((profit / total_capital * 100)) if total_capital > 0 else 0.0
-            except (ZeroDivisionError, InvalidOperation):
-                roi_on_total = 0.0
-            
-            # Cap ROI at reasonable values
-            roi_on_initial = min(max(roi_on_initial, -10000), 10000)
-            roi_on_total = min(max(roi_on_total, -10000), 10000)
-            
             return {
-                'initial_capital': float(initial),
-                'total_deposits': float(deposits),
-                'total_withdrawals': float(withdrawals),
-                'net_deposits': float(net_deposits),
-                'total_capital': float(total_capital),
-                'total_profit': float(profit),
-                'current_value': float(current_value),
-                'roi_on_initial': roi_on_initial,
-                'roi_on_total': roi_on_total,
-                'last_balance_check': summary['last_balance_check']
+                'initial_capital': initial,
+                'total_deposits': deposits,
+                'total_withdrawals': withdrawals,
+                'net_deposits': net_deposits,
+                'total_capital': total_capital,
+                'total_profit': profit,
+                'current_value': current,
+                'roi_on_initial': (profit / initial * 100) if initial > 0 else 0,
+                'roi_on_total': (profit / total_capital * 100) if total_capital > 0 else 0,
+                'last_balance_check': result['last_balance_check']
             }
 
 
-# ============================================================================
-# SCHEDULER - Run balance checks periodically
-# ============================================================================
+    async def get_transaction_history(
+        self, 
+        api_key: str, 
+        limit: int = 50
+    ) -> list:
+        """Get transaction history for a user"""
+        async with self.db_pool.acquire() as conn:
+            transactions = await conn.fetch("""
+                SELECT 
+                    transaction_type,
+                    amount,
+                    detected_at,
+                    detection_method,
+                    notes
+                FROM portfolio_transactions
+                WHERE user_id = $1
+                ORDER BY detected_at DESC
+                LIMIT $2
+            """, api_key, limit)
+            
+            return [dict(t) for t in transactions]
+
 
 class BalanceCheckerScheduler:
-    """Run balance checks on a schedule"""
+    """
+    Scheduler for balance checker with startup delay
     
-    def __init__(self, db_pool: asyncpg.Pool, interval_minutes: int = 60, startup_delay_seconds: int = 30):
-        """
-        Args:
-            db_pool: PostgreSQL connection pool
-            interval_minutes: How often to check (default 60 minutes)
-            startup_delay_seconds: Wait time before first check (default 30s)
-        """
+    CORRECTED: 30-second startup delay to prevent race conditions
+    """
+    
+    def __init__(self, db_pool, check_interval_minutes: int = 60, startup_delay_seconds: int = 30):
+        self.db_pool = db_pool
+        self.check_interval = check_interval_minutes * 60  # Convert to seconds
+        self.startup_delay = startup_delay_seconds
         self.checker = BalanceChecker(db_pool)
-        self.interval_minutes = interval_minutes
-        self.startup_delay_seconds = startup_delay_seconds
-        self.running = False
+        self.task = None
     
     async def start(self):
-        """Start the scheduler with startup delay"""
-        self.running = True
-        
-        # Wait for database initialization
+        """Start the balance checker with initial delay"""
         logger.info(
-            f"⏳ Balance checker starting in {self.startup_delay_seconds} seconds "
+            f"⏳ Balance checker starting in {self.startup_delay} seconds "
             f"(allowing database initialization to complete)..."
         )
-        await asyncio.sleep(self.startup_delay_seconds)
         
-        logger.info(
-            f"✅ Balance checker started "
-            f"(checks every {self.interval_minutes} minutes)"
-        )
+        # Wait for database to be ready
+        await asyncio.sleep(self.startup_delay)
         
-        while self.running:
+        logger.info(f"✅ Balance checker started (checks every {self.check_interval // 60} minutes)")
+        
+        self.task = asyncio.create_task(self._run())
+    
+    async def _run(self):
+        """Run balance checks in a loop"""
+        while True:
             try:
                 await self.checker.check_all_users()
-                logger.info(
-                    f"✅ Balance check complete. "
-                    f"Next check in {self.interval_minutes} minutes"
-                )
             except Exception as e:
-                logger.error(f"❌ Error in balance check: {e}")
+                logger.error(f"Error in balance check loop: {e}")
                 import traceback
                 traceback.print_exc()
             
-            # Wait for next check
-            await asyncio.sleep(self.interval_minutes * 60)
+            await asyncio.sleep(self.check_interval)
     
-    def stop(self):
-        """Stop the scheduler"""
-        self.running = False
-        logger.info("⏸️ Balance checker stopped")
-
-
-if __name__ == "__main__":
-    print("Balance Checker Module - Import this into your main application")
+    async def stop(self):
+        """Stop the balance checker"""
+        if self.task:
+            self.task.cancel()
+            try:
+                await self.task
+            except asyncio.CancelledError:
+                pass
