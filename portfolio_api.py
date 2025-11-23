@@ -1,33 +1,80 @@
 # UPDATED PORTFOLIO API - AUTO-DETECT INITIAL CAPITAL
 # ====================================================
-# This version automatically detects initial capital from Kraken balance
+# CORRECTED VERSION - Queries follower_users with encrypted credentials
 
 from fastapi import APIRouter, Request, HTTPException
 from datetime import datetime
 from decimal import Decimal
 import asyncpg
 import os
+from cryptography.fernet import Fernet
 
 router = APIRouter()
 
+# Setup encryption
+ENCRYPTION_KEY = os.getenv("CREDENTIALS_ENCRYPTION_KEY")
+if ENCRYPTION_KEY:
+    cipher = Fernet(ENCRYPTION_KEY.encode())
+else:
+    cipher = None
+
+
+def decrypt_credentials(encrypted_key: str, encrypted_secret: str) -> tuple:
+    """Decrypt Kraken API credentials"""
+    if not cipher or not encrypted_key or not encrypted_secret:
+        return None, None
+    
+    try:
+        api_key = cipher.decrypt(encrypted_key.encode()).decode()
+        api_secret = cipher.decrypt(encrypted_secret.encode()).decode()
+        return api_key, api_secret
+    except Exception as e:
+        print(f"Error decrypting credentials: {e}")
+        return None, None
+
+
 async def get_kraken_credentials(api_key: str):
-    """Get user's Kraken API credentials from database"""
+    """
+    Get user's Kraken API credentials from database
+    
+    CORRECTED: Queries follower_users table with encrypted credentials
+    """
     DATABASE_URL = os.getenv("DATABASE_URL")
     if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
     
     conn = await asyncpg.connect(DATABASE_URL)
     
-    # Check follower_agents table for Kraken credentials
-    agent = await conn.fetchrow("""
-        SELECT api_key as kraken_key, api_secret as kraken_secret 
-        FROM follower_agents 
-        WHERE follower_user_id = $1 
-        LIMIT 1
+    # CORRECTED QUERY: Use follower_users instead of follower_agents
+    user = await conn.fetchrow("""
+        SELECT 
+            kraken_api_key_encrypted, 
+            kraken_api_secret_encrypted,
+            credentials_set
+        FROM follower_users
+        WHERE api_key = $1
+        AND credentials_set = true
     """, api_key)
     
     await conn.close()
-    return agent
+    
+    if not user:
+        return None
+    
+    # Decrypt credentials
+    kraken_key, kraken_secret = decrypt_credentials(
+        user['kraken_api_key_encrypted'],
+        user['kraken_api_secret_encrypted']
+    )
+    
+    if not kraken_key or not kraken_secret:
+        return None
+    
+    return {
+        'kraken_key': kraken_key,
+        'kraken_secret': kraken_secret
+    }
+
 
 async def get_current_kraken_balance(kraken_key: str, kraken_secret: str):
     """Get current USDT balance from Kraken"""
@@ -61,6 +108,8 @@ async def get_current_kraken_balance(kraken_key: str, kraken_secret: str):
 async def initialize_portfolio_autodetect(request: Request):
     """
     Initialize portfolio tracking - AUTO-DETECTS initial capital from Kraken
+    
+    CORRECTED: Uses follower_users table with encrypted credentials
     """
     api_key = request.headers.get("X-API-Key")
     
@@ -88,7 +137,7 @@ async def initialize_portfolio_autodetect(request: Request):
                 "initial_capital": float(existing['initial_capital'])
             }
         
-        # Get user's Kraken credentials
+        # Get user's Kraken credentials (CORRECTED)
         credentials = await get_kraken_credentials(api_key)
         
         if not credentials:
