@@ -1286,7 +1286,7 @@ async def portfolio_dashboard(request: Request):
         
         async function checkPortfolioStatus() {{
             try {{
-                const response = await fetch(`/api/portfolio/balance-summary?key=${currentApiKey}`, {{
+                const response = await fetch(`/api/portfolio/balance-summary?key=${{currentApiKey}}`, {{
                     headers: {{'X-API-Key': currentApiKey}}
                 }});
                 
