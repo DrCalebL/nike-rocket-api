@@ -1360,7 +1360,14 @@ async def portfolio_dashboard(request: Request):
                     showSuccess('setup-message', 'Portfolio already initialized! Loading dashboard...');
                     setTimeout(() => checkPortfolioStatus(), 1000);
                 }} else if (data.status === 'error') {{
-                    showError('setup-message', data.message);
+                    // Show error with setup link if needed
+                    if (data.message.includes('set up your trading agent')) {{
+                        showError('setup-message', 
+                            data.message + ' <br><br>' +
+                            '<a href="/setup?key=' + currentApiKey + '" style="color: white; text-decoration: underline;">→ Go to Agent Setup</a>');
+                    }} else {{
+                        showError('setup-message', data.message);
+                    }}
                 }} else {{
                     showError('setup-message', data.message || 'Failed to initialize portfolio');
                 }}
@@ -2076,7 +2083,7 @@ async def startup_event():
             # ═══════════════════════════════════════════════════════════
             scheduler = BalanceCheckerScheduler(
                 db_pool, 
-                interval_minutes=60,
+                check_interval_minutes=60,
                 startup_delay_seconds=30  # ← CRITICAL FIX: Wait 30s!
             )
             
