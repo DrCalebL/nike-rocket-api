@@ -825,86 +825,72 @@ async def portfolio_dashboard(request: Request):
             font-weight: 600;
         }}
         
-        .logout-btn:hover {{
-            background: rgba(255,255,255,0.3);
-        }}
         
-        /* Agent Status Styles */
+        /* ═══════════════════════════════════════════════════════════════ */
+        /* Agent Status Monitoring Styles */
+        /* ═══════════════════════════════════════════════════════════════ */
         .agent-status-container {{
-            max-width: 800px;
-            margin: 0 auto 24px auto;
+            margin: 20px 0;
+            padding: 0;
         }}
         
         .agent-status {{
-            padding: 16px 20px;
+            padding: 16px 24px;
             border-radius: 12px;
-            font-size: 15px;
+            font-size: 16px;
+            font-weight: 500;
             text-align: center;
             transition: all 0.3s ease;
-            border: 2px solid;
-        }}
-        
-        .agent-status strong {{
-            font-weight: 600;
+            border: 2px solid transparent;
         }}
         
         .status-active {{
-            background: #d1fae5;
-            border-color: #10b981;
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
             color: #065f46;
+            border-color: #10b981;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
         }}
         
         .status-configuring {{
-            background: #dbeafe;
-            border-color: #3b82f6;
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
             color: #1e40af;
-            animation: pulse 2s ease-in-out infinite;
+            border-color: #3b82f6;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
         }}
         
         .status-ready {{
-            background: #fef3c7;
-            border-color: #f59e0b;
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
             color: #92400e;
+            border-color: #f59e0b;
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.2);
         }}
         
         .status-error {{
-            background: #fee2e2;
-            border-color: #ef4444;
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
             color: #991b1b;
+            border-color: #ef4444;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
         }}
         
         .status-unknown {{
-            background: #f3f4f6;
-            border-color: #9ca3af;
+            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
             color: #4b5563;
+            border-color: #9ca3af;
+            box-shadow: 0 4px 12px rgba(156, 163, 175, 0.2);
         }}
         
-        @keyframes pulse {{
-            0%, 100% {{
-                opacity: 1;
-            }}
-            50% {{
-                opacity: 0.7;
-            }}
-        }}
-        
-        /* Info message styling */
-        .info {{
-            padding: 16px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            background: #dbeafe;
-            color: #1e40af;
-            border: 1px solid #93c5fd;
-            display: block;
-        }}
-        
-        .info strong {{
+        .agent-status a {{
+            color: inherit;
+            text-decoration: underline;
             font-weight: 600;
         }}
         
-        .info small {{
-            font-size: 13px;
+        .agent-status a:hover {{
+            opacity: 0.8;
+        }}
+        
+        .logout-btn:hover {{
+            background: rgba(255,255,255,0.3);
         }}
     </style>
 </head>
@@ -1336,32 +1322,32 @@ async def portfolio_dashboard(request: Request):
         let currentPeriod = '30d';
         
         // On page load
-        if (currentApiKey) {
+        if (currentApiKey) {{
             document.getElementById('api-key-input').value = currentApiKey;
             login();
-        }
+        }}
         
         // ═══════════════════════════════════════════════════════════════
-        // NEW: Agent Status Monitoring Functions
+        // Agent Status Monitoring Functions
         // ═══════════════════════════════════════════════════════════════
         
-        async function checkAgentStatusAPI() {
-            try {
-                const response = await fetch(`/api/agent-status?key=${currentApiKey}`, {
-                    headers: {'X-API-Key': currentApiKey}
-                });
+        async function checkAgentStatusAPI() {{
+            try {{
+                const response = await fetch(`/api/agent-status?key=${{currentApiKey}}`, {{
+                    headers: {{'X-API-Key': currentApiKey}}
+                }});
                 
                 const data = await response.json();
                 return data;
                 
-            } catch (error) {
+            }} catch (error) {{
                 console.error('Error checking agent status:', error);
-                return { status: 'error', message: error.message };
-            }
-        }
+                return {{ status: 'error', message: error.message }};
+            }}
+        }}
         
-        async function displayAgentStatus() {
-            try {
+        async function displayAgentStatus() {{
+            try {{
                 const statusData = await checkAgentStatusAPI();
                 
                 const statusElement = document.getElementById('agent-status-display');
@@ -1370,620 +1356,694 @@ async def portfolio_dashboard(request: Request):
                 let statusHTML = '';
                 let statusClass = '';
                 
-                if (statusData.status === 'active') {
+                if (statusData.status === 'active') {{
                     statusHTML = '🟢 <strong>Agent Active</strong> - Following signals';
                     statusClass = 'status-active';
-                } else if (statusData.status === 'configuring') {
-                    statusHTML = `⏳ <strong>Configuring</strong> - Ready in ${statusData.ready_in_minutes} min (${statusData.setup_complete_percentage}%)`;
+                }} else if (statusData.status === 'configuring') {{
+                    statusHTML = `⏳ <strong>Configuring</strong> - Ready in ${{statusData.ready_in_minutes}} min (${{statusData.setup_complete_percentage}}%)`;
                     statusClass = 'status-configuring';
-                } else if (statusData.status === 'ready') {
+                }} else if (statusData.status === 'ready') {{
                     statusHTML = '🟡 <strong>Ready</strong> - Agent configured';
                     statusClass = 'status-ready';
-                } else if (statusData.status === 'not_configured') {
+                }} else if (statusData.status === 'not_configured') {{
                     statusHTML = '🔴 <strong>Not Configured</strong> - <a href="/setup?key=' + currentApiKey + '" style="color: #dc2626;">Complete setup</a>';
                     statusClass = 'status-error';
-                } else {
+                }} else {{
                     statusHTML = '⚠️ <strong>Unknown</strong> - ' + statusData.message;
                     statusClass = 'status-unknown';
-                }
+                }}
                 
                 statusElement.innerHTML = statusHTML;
                 statusElement.className = 'agent-status ' + statusClass;
                 
-            } catch (error) {
+            }} catch (error) {{
                 console.error('Error displaying agent status:', error);
-            }
-        }
+            }}
+        }}
         
         let agentStatusInterval = null;
         
-        function startAgentStatusMonitoring() {
-            if (agentStatusInterval) {
+        function startAgentStatusMonitoring() {{
+            if (agentStatusInterval) {{
                 clearInterval(agentStatusInterval);
-            }
+            }}
             
+            // Display immediately
             displayAgentStatus();
             
-            agentStatusInterval = setInterval(() => {
+            // Then update every 30 seconds
+            agentStatusInterval = setInterval(() => {{
                 displayAgentStatus();
-            }, 30000); // Update every 30 seconds
-        }
+            }}, 30000);
+        }}
         
-        function stopAgentStatusMonitoring() {
-            if (agentStatusInterval) {
+        function stopAgentStatusMonitoring() {{
+            if (agentStatusInterval) {{
                 clearInterval(agentStatusInterval);
                 agentStatusInterval = null;
-            }
-        }
+            }}
+        }}
         
         // ═══════════════════════════════════════════════════════════════
-        // Login and Authentication
-        // ═══════════════════════════════════════════════════════════════
         
-        function login() {
+        function login() {{
             const apiKey = document.getElementById('api-key-input').value.trim();
             
-            if (!apiKey) {
+            if (!apiKey) {{
                 showError('login-error', 'Please enter your API key');
                 return;
-            }
+            }}
             
-            if (!apiKey.startsWith('nk_')) {
-                showError('login-error', 'Invalid API key format. Should start with "nk_"');
+            if (!apiKey.startsWith('nk_')) {{
+                showError('login-error', 'Invalid API key format. Keys should start with "nk_"');
                 return;
-            }
+            }}
             
             currentApiKey = apiKey;
-            document.getElementById('login-error').style.display = 'none';
+            localStorage.setItem('apiKey', apiKey);
             
+            // Try to load stats
             checkPortfolioStatus();
-        }
+        }}
         
-        function logout() {
+        function logout() {{
             stopAgentStatusMonitoring();
-            document.getElementById('dashboard').style.display = 'none';
+            localStorage.removeItem('apiKey');
+            currentApiKey = '';
             document.getElementById('login-screen').style.display = 'block';
             document.getElementById('setup-wizard').style.display = 'none';
-            currentApiKey = '';
-            document.getElementById('api-key-input').value = '';
-        }
+            document.getElementById('dashboard').style.display = 'none';
+        }}
         
-        // ═══════════════════════════════════════════════════════════════
-        // Portfolio Status Check (UPDATED WITH AGENT STATUS)
-        // ═══════════════════════════════════════════════════════════════
-        
-        async function checkPortfolioStatus() {
-            try {
-                // STEP 1: Check agent status first
-                const statusData = await checkAgentStatusAPI();
+        async function checkPortfolioStatus() {{
+            try {{
+                const response = await fetch(`/api/portfolio/balance-summary?key=${{currentApiKey}}`, {{
+                    headers: {{'X-API-Key': currentApiKey}}
+                }});
                 
-                if (statusData.status === 'configuring') {
-                    showSetupWizard();
-                    return;
-                }
-                
-                if (statusData.status === 'not_configured') {
-                    showSetupWizard();
-                    return;
-                }
-                
-                // STEP 2: Check portfolio status
-                const response = await fetch(`/api/portfolio/balance-summary?key=${currentApiKey}`, {
-                    headers: {'X-API-Key': currentApiKey}
-                });
-                
-                if (response.status === 401) {
+                if (response.status === 401) {{
                     showError('login-error', 'Invalid API key. Please check and try again.');
                     return;
-                }
+                }}
                 
-                if (!response.ok) {
+                if (!response.ok) {{
+                    // Handle other errors (500, 404, etc.)
                     console.error('Portfolio stats error:', response.status);
+                    // Still try to show setup wizard for new users
                     showSetupWizard();
                     return;
-                }
+                }}
                 
                 const data = await response.json();
                 
-                if (data.status === 'success' || data.total_profit !== undefined) {
+                if (data.status === 'success' || data.total_profit !== undefined) {{
+                    // Portfolio initialized - show dashboard with data
                     showDashboard(data);
+                    // Load balance summary and transactions
                     await loadBalanceSummary();
                     await loadTransactionHistory();
-                    await displayAgentStatus();
-                    startAgentStatusMonitoring();
-                } else if (data.status === 'not_initialized') {
+                    // Check agent status
+                    await checkAgentStatus();
+                }} else if (data.status === 'not_initialized') {{
+                    // Portfolio not yet initialized - show setup wizard
                     showSetupWizard();
-                } else {
+                }} else {{
+                    // Unknown status - show setup wizard
                     showSetupWizard();
-                }
+                }}
                 
-            } catch (error) {
+            }} catch (error) {{
                 console.error('Error:', error);
+                // If error, assume needs setup
                 showSetupWizard();
-            }
-        }
+            }}
+        }}
         
-        // ═══════════════════════════════════════════════════════════════
-        // Setup Wizard (UPDATED WITH CONFIGURING STATE)
-        // ═══════════════════════════════════════════════════════════════
-        
-        async function showSetupWizard() {
-            const statusData = await checkAgentStatusAPI();
-            
+        function showSetupWizard() {{
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('setup-wizard').style.display = 'block';
             document.getElementById('dashboard').style.display = 'none';
-            
-            const setupMessage = document.getElementById('setup-message');
-            const startButton = document.querySelector('.btn');
-            
-            if (statusData.status === 'configuring') {
-                if (setupMessage) {
-                    setupMessage.innerHTML = `
-                        ⏳ <strong>Your trading agent is being configured.</strong>
-                        <br><br>
-                        Please wait approximately <strong>${statusData.ready_in_minutes} minute(s)</strong> before initializing your portfolio.
-                        <br><br>
-                        <div style="background: #e0e7ff; padding: 10px; border-radius: 8px; margin-top: 12px;">
-                            <small>Setup Progress: ${statusData.setup_complete_percentage}%</small>
-                            <div style="background: #cbd5e1; height: 8px; border-radius: 4px; margin-top: 6px; overflow: hidden;">
-                                <div style="background: #667eea; height: 100%; width: ${statusData.setup_complete_percentage}%; transition: width 0.5s;"></div>
-                            </div>
-                        </div>
-                        <br>
-                        <small style="color: #6b7280;">
-                            <a href="javascript:location.reload()" style="color: #667eea; text-decoration: underline;">
-                                Click here to refresh and check status
-                            </a>
-                        </small>
-                    `;
-                    setupMessage.className = 'info';
-                    setupMessage.style.display = 'block';
-                }
-                
-                if (startButton) {
-                    startButton.disabled = true;
-                    startButton.textContent = `⏳ Agent Configuring (${statusData.ready_in_minutes} min remaining)`;
-                    startButton.style.cursor = 'not-allowed';
-                    startButton.style.background = '#9ca3af';
-                }
-                
-                const refreshTime = (statusData.ready_in_minutes * 60 + 10) * 1000;
-                setTimeout(() => {
-                    location.reload();
-                }, refreshTime);
-                
-            } else {
-                if (setupMessage) {
-                    setupMessage.innerHTML = '';
-                    setupMessage.style.display = 'none';
-                }
-                
-                if (startButton) {
-                    startButton.disabled = false;
-                    startButton.textContent = '🚀 Start Tracking';
-                    startButton.style.cursor = 'pointer';
-                    startButton.style.background = '#667eea';
-                }
-            }
-        }
+        }}
         
-        // ═══════════════════════════════════════════════════════════════
-        // Portfolio Initialization (UPDATED WITH AGENT CHECK)
-        // ═══════════════════════════════════════════════════════════════
-        
-        async function initializePortfolio() {
-            try {
-                showSuccess('setup-message', '🔍 Checking agent status...');
-                
-                const statusData = await checkAgentStatusAPI();
-                
-                if (statusData.status === 'configuring') {
-                    showError('setup-message', 
-                        `⚠️ Your trading agent is not ready yet. ` +
-                        `<br><br>Please wait <strong>${statusData.ready_in_minutes} more minute(s)</strong> and ` +
-                        `<a href="javascript:location.reload()" style="color: #ffffff; text-decoration: underline;">refresh this page</a>.`);
-                    return;
-                }
-                
-                if (statusData.status === 'not_configured') {
-                    showError('setup-message', 
-                        'Please set up your trading agent first.<br><br>' +
-                        '<a href="/setup?key=' + currentApiKey + '" ' +
-                        'style="color: #ffffff; text-decoration: underline; font-weight: bold;">' +
-                        '→ Go to Agent Setup</a>');
-                    return;
-                }
-                
-                if (statusData.status === 'error') {
-                    showError('setup-message', 
-                        '⚠️ Error checking agent status. Please try again or contact support.');
-                    return;
-                }
-                
+        async function initializePortfolio() {{
+            // No need to get initial capital - it will be auto-detected!
+            
+            try {{
+                // Show loading message
                 showSuccess('setup-message', '🔍 Detecting your Kraken balance...');
                 
-                const response = await fetch('/api/portfolio/initialize', {
+                const response = await fetch('/api/portfolio/initialize', {{
                     method: 'POST',
-                    headers: {
+                    headers: {{
                         'X-API-Key': currentApiKey,
                         'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({})
-                });
+                    }},
+                    body: JSON.stringify({{}})  // Empty - auto-detect!
+                }});
                 
                 const data = await response.json();
                 
-                if (data.status === 'success') {
+                if (data.status === 'success') {{
                     showSuccess('setup-message', 
-                        `✅ Portfolio initialized with $${data.initial_capital.toLocaleString()} detected from your Kraken account!`);
+                        `✅ Portfolio initialized with $${{data.initial_capital.toLocaleString()}} detected from your Kraken account!`);
                     setTimeout(() => checkPortfolioStatus(), 2000);
-                } else if (data.status === 'already_initialized') {
+                }} else if (data.status === 'already_initialized') {{
                     showSuccess('setup-message', 'Portfolio already initialized! Loading dashboard...');
                     setTimeout(() => checkPortfolioStatus(), 1000);
-                } else if (data.status === 'error') {
-                    if (data.message.includes('set up your trading agent')) {
+                }} else if (data.status === 'error') {{
+                    // Show error with setup link if needed
+                    if (data.message.includes('set up your trading agent')) {{
                         showError('setup-message', 
                             data.message + '<br><br>' +
                             '<a href="/setup?key=' + currentApiKey + '" ' +
                             'style="color: #ffffff; text-decoration: underline; font-weight: bold;">' +
                             '→ Go to Agent Setup</a>');
-                    } else {
+                    }} else {{
                         showError('setup-message', data.message);
-                    }
-                } else {
+                    }}
+                }} else {{
                     showError('setup-message', data.message || 'Failed to initialize portfolio');
-                }
+                }}
                 
-            } catch (error) {
+            }} catch (error) {{
                 showError('setup-message', 'Error initializing portfolio: ' + error.message);
-            }
-        }
+            }}
+        }}
         
-        // ═══════════════════════════════════════════════════════════════
-        // Dashboard Display
-        // ═══════════════════════════════════════════════════════════════
-        
-        function showDashboard(stats) {
+        function showDashboard(stats) {{
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('setup-wizard').style.display = 'none';
             document.getElementById('dashboard').style.display = 'block';
-        }
+            
+            // Start agent status monitoring
+            startAgentStatusMonitoring();
+            
+            if (stats && stats.status !== 'no_data') {{
+                updateDashboard(stats);
+            }} else {{
+                // Show empty state
+                document.getElementById('profit-label').textContent = 'No Trades Yet';
+                document.getElementById('total-profit').textContent = '$0';
+                document.getElementById('time-tracking').textContent = 'Start trading to see your stats!';
+            }}
+        }}
         
-        // ═══════════════════════════════════════════════════════════════
-        // Balance Summary
-        // ═══════════════════════════════════════════════════════════════
+        function updateDashboard(stats) {{
+            document.getElementById('profit-label').textContent = `${{stats.period}} Profit`;
+            document.getElementById('total-profit').textContent = `$${{stats.total_profit.toLocaleString()}}`;
+            
+            // Update both ROI displays
+            const roiInitial = stats.roi_on_initial || 0;
+            const roiTotal = stats.roi_on_total || roiInitial;
+            document.getElementById('roi-initial').textContent = `+${{roiInitial}}%`;
+            document.getElementById('roi-total').textContent = `+${{roiTotal}}%`;
+            
+            document.getElementById('profit-factor').textContent = `${{stats.profit_factor}}x`;
+            document.getElementById('best-trade').textContent = `$${{stats.best_trade.toLocaleString()}}`;
+            document.getElementById('monthly-avg').textContent = `$${{stats.avg_monthly_profit.toLocaleString()}}`;
+            document.getElementById('total-trades').textContent = stats.total_trades;
+            document.getElementById('max-dd').textContent = `-${{stats.max_drawdown}}%`;
+            document.getElementById('dd-recovery').textContent = `+${{stats.recovery_from_dd.toFixed(0)}}% recovered`;
+            document.getElementById('sharpe').textContent = stats.sharpe_ratio.toFixed(1);
+            document.getElementById('days-active').textContent = stats.days_active;
+            document.getElementById('pf-detail').textContent = 
+                `$${{stats.gross_wins.toLocaleString()}} wins / $${{stats.gross_losses.toLocaleString()}} losses`;
+            
+            if (stats.started_tracking) {{
+                const startDate = new Date(stats.started_tracking);
+                document.getElementById('time-tracking').textContent = 
+                    `Trading since ${{startDate.toLocaleDateString()}} • ${{stats.period}}`;
+            }}
+        }}
         
-        async function loadBalanceSummary() {
-            try {
-                const response = await fetch(`/api/portfolio/balance-summary?key=${currentApiKey}`);
+        // NEW: Load balance summary
+        async function loadBalanceSummary() {{
+            try {{
+                const response = await fetch(`/api/portfolio/balance-summary?key=${{currentApiKey}}`);
                 const data = await response.json();
                 
-                if (data.status === 'success') {
-                    document.getElementById('initial-capital-display').textContent = `$${data.initial_capital.toLocaleString()}`;
-                    document.getElementById('current-value').textContent = `$${data.current_value.toLocaleString()}`;
+                if (data.status === 'success') {{
+                    // Update portfolio overview
+                    document.getElementById('current-value').textContent = 
+                        `$${{data.current_value.toLocaleString()}}`;
+                    document.getElementById('initial-capital-display').textContent = 
+                        `$${{data.initial_capital.toLocaleString()}}`;
+                    document.getElementById('net-deposits').textContent = 
+                        data.net_deposits >= 0 
+                            ? `+$${{data.net_deposits.toLocaleString()}}`
+                            : `-$${{Math.abs(data.net_deposits).toLocaleString()}}`;
+                    document.getElementById('total-profit-overview').textContent = 
+                        `+$${{data.total_profit.toLocaleString()}}`;
+                    document.getElementById('total-deposits').textContent = 
+                        `+$${{data.total_deposits.toLocaleString()}}`;
+                    document.getElementById('total-withdrawals').textContent = 
+                        data.total_withdrawals > 0 
+                            ? `-$${{data.total_withdrawals.toLocaleString()}}`
+                            : `$0`;
+                    document.getElementById('total-capital').textContent = 
+                        `$${{data.total_capital.toLocaleString()}}`;
                     
-                    const netDeposits = data.total_deposits - data.total_withdrawals;
-                    document.getElementById('net-deposits').textContent = `$${netDeposits.toLocaleString()}`;
-                    document.getElementById('net-deposits').style.color = netDeposits >= 0 ? '#10b981' : '#ef4444';
+                    // Update ROI displays
+                    document.getElementById('roi-initial').textContent = 
+                        `+${{data.roi_on_initial.toFixed(1)}}%`;
+                    document.getElementById('roi-total').textContent = 
+                        `+${{data.roi_on_total.toFixed(1)}}%`;
                     
-                    const totalProfit = data.current_value - data.initial_capital - netDeposits;
-                    document.getElementById('total-profit-overview').textContent = `$${totalProfit.toLocaleString()}`;
-                    document.getElementById('total-profit-overview').style.color = totalProfit >= 0 ? '#10b981' : '#ef4444';
-                    
-                    document.getElementById('total-deposits').textContent = `+$${data.total_deposits.toLocaleString()}`;
-                    document.getElementById('total-withdrawals').textContent = `-$${data.total_withdrawals.toLocaleString()}`;
-                }
-            } catch (error) {
+                    // Update last check time
+                    if (data.last_balance_check) {{
+                        const checkTime = new Date(data.last_balance_check);
+                        document.getElementById('last-check').textContent = 
+                            checkTime.toLocaleString();
+                    }}
+                }}
+            }} catch (error) {{
                 console.error('Error loading balance summary:', error);
-            }
-        }
+            }}
+        }}
         
-        // ═══════════════════════════════════════════════════════════════
-        // Transaction History
-        // ═══════════════════════════════════════════════════════════════
-        
-        async function loadTransactionHistory() {
-            try {
-                const response = await fetch(`/api/portfolio/transactions?key=${currentApiKey}&limit=50`);
+        // NEW: Load transaction history
+        async function loadTransactionHistory() {{
+            try {{
+                const response = await fetch(`/api/portfolio/transactions?key=${{currentApiKey}}&limit=20`);
                 const data = await response.json();
                 
-                const container = document.getElementById('transaction-list');
+                const listElement = document.getElementById('transaction-list');
                 
-                if (data.status === 'success' && data.transactions && data.transactions.length > 0) {
-                    let html = '<div style="display: grid; gap: 12px;">';
-                    
-                    data.transactions.forEach(tx => {
-                        const date = new Date(tx.created_at).toLocaleString();
-                        const typeClass = tx.transaction_type === 'deposit' ? 'deposit' : 'withdrawal';
-                        const typeIcon = tx.transaction_type === 'deposit' ? '⬆️' : '⬇️';
-                        const amountColor = tx.transaction_type === 'deposit' ? '#10b981' : '#ef4444';
-                        const amountPrefix = tx.transaction_type === 'deposit' ? '+' : '-';
+                if (data.status === 'success' && data.transactions.length > 0) {{
+                    let html = '';
+                    for (const tx of data.transactions) {{
+                        const date = new Date(tx.created_at).toLocaleDateString();
+                        const time = new Date(tx.created_at).toLocaleTimeString();
+                        const icon = tx.transaction_type === 'deposit' ? '💰' : 
+                                    tx.transaction_type === 'withdrawal' ? '💸' : '🎯';
+                        const color = tx.transaction_type === 'deposit' ? '#10b981' : 
+                                     tx.transaction_type === 'withdrawal' ? '#ef4444' : '#667eea';
+                        const sign = tx.transaction_type === 'deposit' ? '+' : 
+                                    tx.transaction_type === 'withdrawal' ? '-' : '';
                         
                         html += `
                             <div style="
-                                background: white;
-                                border: 1px solid #e5e7eb;
-                                border-radius: 8px;
-                                padding: 16px;
-                                display: grid;
-                                grid-template-columns: auto 1fr auto;
-                                gap: 12px;
+                                padding: 15px;
+                                border-bottom: 1px solid #e5e7eb;
+                                display: flex;
+                                justify-content: space-between;
                                 align-items: center;
                             ">
-                                <div style="font-size: 24px;">${typeIcon}</div>
-                                <div>
-                                    <div style="font-weight: 600; color: #1f2937; margin-bottom: 4px;">
-                                        ${tx.transaction_type.charAt(0).toUpperCase() + tx.transaction_type.slice(1)}
+                                <div style="display: flex; align-items: center; gap: 15px;">
+                                    <div style="font-size: 24px;">${{icon}}</div>
+                                    <div>
+                                        <div style="font-weight: 600; color: #374151; text-transform: capitalize;">
+                                            ${{tx.transaction_type}}
+                                        </div>
+                                        <div style="font-size: 12px; color: #9ca3af;">
+                                            ${{date}} at ${{time}}
+                                        </div>
                                     </div>
-                                    <div style="font-size: 13px; color: #6b7280;">
-                                        ${date}
-                                    </div>
-                                    ${tx.notes ? `<div style="font-size: 12px; color: #9ca3af; margin-top: 4px;">${tx.notes}</div>` : ''}
                                 </div>
-                                <div style="
-                                    font-size: 20px;
-                                    font-weight: 700;
-                                    color: ${amountColor};
-                                ">
-                                    ${amountPrefix}$${tx.amount.toLocaleString()}
+                                <div style="text-align: right;">
+                                    <div style="font-size: 20px; font-weight: 600; color: ${{color}};">
+                                        ${{sign}}$${{tx.amount.toLocaleString()}}
+                                    </div>
+                                    <div style="font-size: 11px; color: #9ca3af;">
+                                        ${{tx.detection_method}}
+                                    </div>
                                 </div>
                             </div>
                         `;
-                    });
-                    
-                    html += '</div>';
-                    container.innerHTML = html;
-                } else {
-                    container.innerHTML = `
+                    }}
+                    listElement.innerHTML = html;
+                }} else {{
+                    listElement.innerHTML = `
                         <div style="text-align: center; padding: 40px; color: #9ca3af;">
-                            <div style="font-size: 48px; margin-bottom: 16px;">📊</div>
-                            <div style="font-size: 16px; font-weight: 600; color: #6b7280;">No transactions yet</div>
-                            <div style="font-size: 14px; margin-top: 8px;">Deposits and withdrawals will appear here</div>
+                            No transactions yet. System will automatically detect deposits and withdrawals.
                         </div>
                     `;
-                }
-            } catch (error) {
+                }}
+            }} catch (error) {{
                 console.error('Error loading transactions:', error);
                 document.getElementById('transaction-list').innerHTML = `
                     <div style="text-align: center; padding: 40px; color: #ef4444;">
                         Error loading transactions
                     </div>
                 `;
-            }
-        }
+            }}
+        }}
         
-        // ═══════════════════════════════════════════════════════════════
-        // OLD FUNCTIONS: Twitter Share & Download (FROM WORKING VERSION)
-        // ═══════════════════════════════════════════════════════════════
+        async function changePeriod() {{
+            currentPeriod = document.getElementById('period-selector').value;
+            
+            try {{
+                const response = await fetch(`/api/portfolio/stats?period=${{currentPeriod}}`, {{
+                    headers: {{'X-API-Key': currentApiKey}}
+                }});
+                
+                const stats = await response.json();
+                
+                if (stats.status !== 'no_data') {{
+                    updateDashboard(stats);
+                }}
+            }} catch (error) {{
+                console.error('Error loading stats:', error);
+            }}
+        }}
         
-        let selectedBackground = 'charles';
-        let selectorMode = 'download';
+        // ==================== SOCIAL SHARING FUNCTIONS (NEW!) ====================
         
-        function toggleBackgroundSelector() {
+        let selectedBackground = 'charles'; // Default background
+        let selectorMode = 'download'; // 'download' or 'twitter'
+        
+        function shareToTwitter() {{
+            const profit = document.getElementById('total-profit').textContent;
+            const roi = document.getElementById('roi').textContent;
+            const period = document.getElementById('period-selector').value;
+            
+            const periodLabels = {{
+                '7d': '7 days',
+                '30d': '30 days',
+                '90d': '90 days',
+                'all': 'all-time'
+            }};
+            
+            // Prepare Twitter URL BEFORE generating image
+            const text = `$NIKEPIG's Massive Rocket ${{periodLabels[period]}} Performance Card
+
+Profit: ${{profit}}
+ROI: ${{roi}}`;
+            
+            const twitterUrl = `https://twitter.com/intent/tweet?text=${{encodeURIComponent(text)}}`;
+            
+            // Generate the performance card image
+            generateImageForShare(profit, roi, period, periodLabels[period], (imageBlob) => {{
+                // Download the image automatically
+                const url = URL.createObjectURL(imageBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `nikepig-performance-${{period}}.png`;
+                a.click();
+                URL.revokeObjectURL(url);
+                
+                // Try to copy image to clipboard (modern browsers only)
+                if (navigator.clipboard && navigator.clipboard.write) {{
+                    const item = new ClipboardItem({{ 'image/png': imageBlob }});
+                    navigator.clipboard.write([item]).then(() => {{
+                        console.log('✅ Image copied to clipboard!');
+                    }}).catch(err => {{
+                        console.log('⚠️ Could not copy to clipboard:', err);
+                    }});
+                }}
+                
+                // IMMEDIATELY open Twitter (no setTimeout, no blocking alert!)
+                const twitterWindow = window.open(twitterUrl, '_blank');
+                
+                // Close the background selector modal
+                toggleBackgroundSelector();
+                
+                // Show non-blocking alert AFTER opening Twitter
+                setTimeout(() => {{
+                    alert('📸 Performance card downloaded!\\n\\n💡 Tip: The image may be in your clipboard - just paste it into your tweet!\\n\\nOr click "Add photos" to attach the downloaded image.');
+                }}, 100);
+            }});
+        }}
+        
+        function generateImageForShare(profit, roi, period, periodLabel, callback) {{
+            // Create canvas with same specs as downloadPerformanceCard
+            const canvas = document.createElement('canvas');
+            canvas.width = 1200;
+            canvas.height = 630;
+            const ctx = canvas.getContext('2d');
+            
+            const backgroundUrls = {{
+                'charles': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-charles.png',
+                'casino': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-casino.png',
+                'gaming': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-gaming.png',
+                'money': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-money.png'
+            }};
+            
+            const logoUrl = 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/nikepig-logo.png';
+            
+            // Load background image
+            const bgImage = new Image();
+            bgImage.crossOrigin = 'anonymous';
+            bgImage.onload = function() {{
+                // Draw background
+                ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
+                
+                // Add overlay
+                ctx.fillStyle = 'rgba(0,0,0,0.35)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Load logo
+                const logo = new Image();
+                logo.crossOrigin = 'anonymous';
+                logo.onload = function() {{
+                    // Draw logo
+                    const logoHeight = 100;
+                    const logoWidth = (logo.width / logo.height) * logoHeight;
+                    ctx.drawImage(logo, 50, 50, logoWidth, logoHeight);
+                    
+                    // PROFIT label
+                    ctx.fillStyle = 'white';
+                    ctx.font = '40px "Bebas Neue", Impact, Arial, sans-serif';
+                    ctx.textAlign = 'left';
+                    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                    ctx.shadowBlur = 8;
+                    ctx.shadowOffsetX = 2;
+                    ctx.shadowOffsetY = 2;
+                    ctx.fillText('PROFIT', 50, 230);
+                    
+                    // Profit number
+                    ctx.fillStyle = '#00FF88';
+                    ctx.font = 'bold 140px "Bebas Neue", Impact, Arial, sans-serif';
+                    ctx.shadowBlur = 15;
+                    ctx.shadowOffsetX = 3;
+                    ctx.shadowOffsetY = 3;
+                    ctx.fillText(profit, 50, 360);
+                    
+                    // ROI label
+                    ctx.fillStyle = 'white';
+                    ctx.font = '40px "Bebas Neue", Impact, Arial, sans-serif';
+                    ctx.shadowBlur = 8;
+                    ctx.shadowOffsetX = 2;
+                    ctx.shadowOffsetY = 2;
+                    ctx.fillText('ROI', 50, 450);
+                    
+                    // ROI number
+                    const roiColor = roi.includes('+') || !roi.includes('-') ? '#00FF88' : '#FF4444';
+                    ctx.fillStyle = roiColor;
+                    ctx.font = 'bold 100px "Bebas Neue", Impact, Arial, sans-serif';
+                    ctx.shadowBlur = 12;
+                    ctx.shadowOffsetX = 3;
+                    ctx.shadowOffsetY = 3;
+                    ctx.fillText(roi, 50, 540);
+                    
+                    // "over X days"
+                    ctx.fillStyle = 'white';
+                    ctx.font = '32px Arial, sans-serif';
+                    ctx.shadowBlur = 8;
+                    ctx.fillText(`over ${{periodLabel}}`, 50, 580);
+                    
+                    // Convert to blob and callback
+                    canvas.toBlob(callback);
+                }};
+                logo.src = logoUrl;
+            }};
+            bgImage.src = backgroundUrls[selectedBackground];
+        }}
+        
+        
+        function toggleBackgroundSelector() {{
             const selector = document.getElementById('background-selector');
             selector.style.display = selector.style.display === 'none' ? 'block' : 'none';
-        }
+        }}
         
-        function showBackgroundSelectorForDownload() {
+        function showBackgroundSelectorForDownload() {{
             selectorMode = 'download';
             const btn = document.getElementById('selector-action-btn');
             btn.textContent = '✅ Download Image';
             btn.style.background = '#10b981';
             toggleBackgroundSelector();
-        }
+        }}
         
-        function showBackgroundSelectorForTwitter() {
+        function showBackgroundSelectorForTwitter() {{
             selectorMode = 'twitter';
             const btn = document.getElementById('selector-action-btn');
             btn.textContent = '𝕏 Share to Twitter';
             btn.style.background = '#1da1f2';
             toggleBackgroundSelector();
-        }
+        }}
         
-        function handleSelectorAction() {
-            if (selectorMode === 'twitter') {
+        function handleSelectorAction() {{
+            if (selectorMode === 'twitter') {{
                 shareToTwitter();
-            } else {
+            }} else {{
                 downloadPerformanceCard();
-            }
-        }
+            }}
+        }}
         
-        function selectBackground(bgType) {
+        function selectBackground(bgType) {{
             selectedBackground = bgType;
             
-            document.querySelectorAll('.bg-option').forEach(el => {
+            // Update visual selection - highlight selected background
+            document.querySelectorAll('.bg-option').forEach(el => {{
                 el.style.border = '3px solid transparent';
                 el.style.transform = 'scale(1)';
                 el.style.boxShadow = 'none';
-            });
+            }});
             
-            const selected = document.querySelector(`[data-bg="${bgType}"]`);
+            const selected = document.querySelector(`[data-bg="${{bgType}}"]`);
             selected.style.border = '3px solid #667eea';
             selected.style.transform = 'scale(1.05)';
             selected.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.5)';
-        }
+        }}
         
-        function downloadPerformanceCard() {
+        function downloadPerformanceCard() {{
             const profit = document.getElementById('total-profit').textContent;
             const roi = document.getElementById('roi').textContent;
             const period = document.getElementById('period-selector').value;
             
-            const periodLabels = {
+            const periodLabels = {{
                 '7d': '7 days',
                 '30d': '30 days',
                 '90d': '90 days',
                 'all': 'all-time'
-            };
+            }};
             
+            // Create canvas
             const canvas = document.createElement('canvas');
             canvas.width = 1200;
             canvas.height = 630;
             const ctx = canvas.getContext('2d');
             
-            const backgroundUrls = {
+            // Background image URLs from GitHub
+            const backgroundUrls = {{
                 'charles': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-charles.png',
                 'casino': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-casino.png',
                 'gaming': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-gaming.png',
                 'money': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-money.png'
-            };
+            }};
             
             const logoUrl = 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/nikepig-logo.png';
             
+            // Load background image
             const bgImage = new Image();
             bgImage.crossOrigin = 'anonymous';
-            bgImage.onload = function() {
+            bgImage.onload = function() {{
+                // Draw background image (cover the entire canvas)
                 ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
                 
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                // Add dark overlay for text readability
+                ctx.fillStyle = 'rgba(0,0,0,0.35)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 
+                // Load and draw NIKEPIG logo
                 const logo = new Image();
                 logo.crossOrigin = 'anonymous';
-                logo.onload = function() {
-                    ctx.drawImage(logo, 50, 40, 120, 120);
+                logo.onload = function() {{
+                    // Draw logo (top-left, scaled)
+                    const logoHeight = 100;
+                    const logoWidth = (logo.width / logo.height) * logoHeight;
+                    ctx.drawImage(logo, 50, 50, logoWidth, logoHeight);
                     
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.font = 'bold 72px Arial';
-                    ctx.fillText('$NIKEPIG', 200, 110);
+                    // PROFIT label (fully opaque + shadow)
+                    ctx.fillStyle = 'white';
+                    ctx.font = '40px "Bebas Neue", Impact, Arial, sans-serif';
+                    ctx.textAlign = 'left';
+                    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                    ctx.shadowBlur = 8;
+                    ctx.shadowOffsetX = 2;
+                    ctx.shadowOffsetY = 2;
+                    ctx.fillText('PROFIT', 50, 230);
                     
-                    ctx.font = '42px Arial';
-                    ctx.fillText(`Performance: ${periodLabels[period]}`, 200, 160);
+                    // HUGE Profit number (bright green + shadow)
+                    ctx.fillStyle = '#00FF88';
+                    ctx.font = 'bold 140px "Bebas Neue", Impact, Arial, sans-serif';
+                    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                    ctx.shadowBlur = 15;
+                    ctx.shadowOffsetX = 3;
+                    ctx.shadowOffsetY = 3;
+                    ctx.fillText(profit, 50, 360);
                     
-                    ctx.font = 'bold 120px Arial';
-                    const profitColor = profit.includes('-') ? '#ef4444' : '#10b981';
-                    ctx.fillStyle = profitColor;
-                    ctx.fillText(profit, 100, 340);
+                    // ROI label (fully opaque + shadow)
+                    ctx.fillStyle = 'white';
+                    ctx.font = '40px "Bebas Neue", Impact, Arial, sans-serif';
+                    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                    ctx.shadowBlur = 8;
+                    ctx.shadowOffsetX = 2;
+                    ctx.shadowOffsetY = 2;
+                    ctx.fillText('ROI', 50, 450);
                     
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.font = '56px Arial';
-                    ctx.fillText(`ROI: ${roi}`, 100, 430);
+                    // ROI percentage (bright green + shadow)
+                    const roiColor = roi.includes('+') || !roi.includes('-') ? '#00FF88' : '#FF4444';
+                    ctx.fillStyle = roiColor;
+                    ctx.font = 'bold 100px "Bebas Neue", Impact, Arial, sans-serif';
+                    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                    ctx.shadowBlur = 12;
+                    ctx.shadowOffsetX = 3;
+                    ctx.shadowOffsetY = 3;
+                    ctx.fillText(roi, 50, 540);
                     
-                    ctx.font = '32px Arial';
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-                    ctx.fillText('Follow the Nike Rocket 🚀', 100, 550);
+                    // "over X days" text DIRECTLY BELOW ROI (fully opaque + shadow)
+                    ctx.fillStyle = 'white';
+                    ctx.font = '32px Arial, sans-serif';
+                    ctx.textAlign = 'left';
+                    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                    ctx.shadowBlur = 8;
+                    ctx.shadowOffsetX = 2;
+                    ctx.shadowOffsetY = 2;
+                    ctx.fillText(`over ${{periodLabels[period]}}`, 50, 580);
                     
-                    canvas.toBlob(function(blob) {
+                    // Download
+                    canvas.toBlob((blob) => {{
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.href = url;
-                        a.download = 'nikepig-performance.png';
+                        a.download = `nikepig-massive-rocket-${{period}}-performance.png`;
                         a.click();
                         URL.revokeObjectURL(url);
-                        toggleBackgroundSelector();
-                    });
-                };
-                logo.src = logoUrl;
-            };
-            bgImage.src = backgroundUrls[selectedBackground];
-        }
-        
-        function shareToTwitter() {
-            const profit = document.getElementById('total-profit').textContent;
-            const roi = document.getElementById('roi').textContent;
-            const period = document.getElementById('period-selector').value;
-            
-            const periodLabels = {
-                '7d': '7 days',
-                '30d': '30 days',
-                '90d': '90 days',
-                'all': 'all-time'
-            };
-            
-            const canvas = document.createElement('canvas');
-            canvas.width = 1200;
-            canvas.height = 630;
-            const ctx = canvas.getContext('2d');
-            
-            const backgroundUrls = {
-                'charles': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-charles.png',
-                'casino': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-casino.png',
-                'gaming': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-gaming.png',
-                'money': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-money.png'
-            };
-            
-            const logoUrl = 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/nikepig-logo.png';
-            
-            const bgImage = new Image();
-            bgImage.crossOrigin = 'anonymous';
-            bgImage.onload = function() {
-                ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
-                
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                
-                const logo = new Image();
-                logo.crossOrigin = 'anonymous';
-                logo.onload = function() {
-                    ctx.drawImage(logo, 50, 40, 120, 120);
-                    
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.font = 'bold 72px Arial';
-                    ctx.fillText('$NIKEPIG', 200, 110);
-                    
-                    ctx.font = '42px Arial';
-                    ctx.fillText(`Performance: ${periodLabels[period]}`, 200, 160);
-                    
-                    ctx.font = 'bold 120px Arial';
-                    const profitColor = profit.includes('-') ? '#ef4444' : '#10b981';
-                    ctx.fillStyle = profitColor;
-                    ctx.fillText(profit, 100, 340);
-                    
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.font = '56px Arial';
-                    ctx.fillText(`ROI: ${roi}`, 100, 430);
-                    
-                    ctx.font = '32px Arial';
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-                    ctx.fillText('Follow the Nike Rocket 🚀', 100, 550);
-                    
-                    canvas.toBlob(async function(blob) {
-                        const file = new File([blob], 'nikepig-performance.png', { type: 'image/png' });
                         
-                        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                            try {
-                                await navigator.share({
-                                    files: [file],
-                                    title: '$NIKEPIG Trading Performance',
-                                    text: `My $NIKEPIG trading results: ${profit} profit (${roi} ROI) over ${periodLabels[period]}! 🚀\n\nFollow the Nike Rocket!`
-                                });
-                                toggleBackgroundSelector();
-                            } catch (err) {
-                                if (err.name !== 'AbortError') {
-                                    console.error('Share failed:', err);
-                                    fallbackTwitterShare(profit, roi, periodLabels[period]);
-                                }
-                            }
-                        } else {
-                            fallbackTwitterShare(profit, roi, periodLabels[period]);
-                        }
-                    });
-                };
+                        // Hide selector after download
+                        document.getElementById('background-selector').style.display = 'none';
+                    }});
+                }};
+                logo.onerror = function() {{
+                    console.error('Failed to load NIKEPIG logo');
+                    // Continue without logo
+                    finishCard();
+                }};
                 logo.src = logoUrl;
-            };
+            }};
+            bgImage.onerror = function() {{
+                console.error('Failed to load background image');
+                alert('Failed to load background image. Please make sure images are uploaded to GitHub at: static/bg-' + selectedBackground + '.png');
+            }};
             bgImage.src = backgroundUrls[selectedBackground];
-        }
+            
+            function finishCard() {{
+                // Fallback if logo fails - still download the card
+                canvas.toBlob((blob) => {{
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `nikepig-massive-rocket-${{period}}-performance.png`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    document.getElementById('background-selector').style.display = 'none';
+                }});
+            }}
+        }}
         
-        function fallbackTwitterShare(profit, roi, periodLabel) {
-            const text = `My $NIKEPIG trading results: ${profit} profit (${roi} ROI) over ${periodLabel}! 🚀\n\nFollow the Nike Rocket!`;
-            const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
-            window.open(twitterUrl, '_blank');
-            toggleBackgroundSelector();
-        }
+        // ==================== AGENT CONTROL FUNCTIONS (NEW!) ====================
         
-        // ═══════════════════════════════════════════════════════════════
-        // OLD FUNCTIONS: Agent Start/Stop Control
-        // ═══════════════════════════════════════════════════════════════
-        
-        async function checkAgentStatus() {
-            try {
-                const response = await fetch('/api/agent-status', {
-                    headers: {'X-API-Key': currentApiKey}
-                });
+        async function checkAgentStatus() {{
+            try {{
+                const response = await fetch('/api/agent-status', {{
+                    headers: {{'X-API-Key': currentApiKey}}
+                }});
                 
                 const data = await response.json();
                 
-                if (data.status === 'running') {
+                if (data.status === 'running') {{
+                    // Agent is running
                     document.getElementById('agent-status-badge').innerHTML = '🟢 Running';
                     document.getElementById('agent-status-badge').style.background = '#d1fae5';
                     document.getElementById('agent-status-badge').style.color = '#065f46';
@@ -1991,11 +2051,13 @@ async def portfolio_dashboard(request: Request):
                     document.getElementById('start-agent-btn').style.display = 'none';
                     document.getElementById('stop-agent-btn').style.display = 'block';
                     
-                    if (data.exchange && data.pair) {
+                    // Show agent details
+                    if (data.exchange && data.pair) {{
                         document.getElementById('agent-details').textContent = 
-                            `Trading ${data.pair} on ${data.exchange}`;
-                    }
-                } else if (data.status === 'stopped' || data.status === 'not_found') {
+                            `Trading ${{data.pair}} on ${{data.exchange}}`;
+                    }}
+                }} else if (data.status === 'stopped' || data.status === 'not_found') {{
+                    // Agent is stopped or not set up
                     document.getElementById('agent-status-badge').innerHTML = '🔴 Stopped';
                     document.getElementById('agent-status-badge').style.background = '#fee2e2';
                     document.getElementById('agent-status-badge').style.color = '#991b1b';
@@ -2003,106 +2065,146 @@ async def portfolio_dashboard(request: Request):
                     document.getElementById('start-agent-btn').style.display = 'block';
                     document.getElementById('stop-agent-btn').style.display = 'none';
                     
-                    if (data.status === 'not_found') {
+                    if (data.status === 'not_found') {{
                         document.getElementById('agent-details').innerHTML = 
                             '<a href="/setup" style="color: #667eea;">Set up your agent first →</a>';
-                    } else {
+                    }} else {{
                         document.getElementById('agent-details').textContent = 
                             data.message || 'Agent is not running';
-                    }
-                } else {
+                    }}
+                }} else {{
+                    // Unknown status
                     document.getElementById('agent-status-badge').innerHTML = '⚠️ Unknown';
                     document.getElementById('agent-status-badge').style.background = '#fef3c7';
                     document.getElementById('agent-status-badge').style.color = '#92400e';
                     
                     document.getElementById('agent-details').textContent = data.message || '';
-                }
-            } catch (error) {
+                }}
+            }} catch (error) {{
                 console.error('Error checking agent status:', error);
                 document.getElementById('agent-status-badge').innerHTML = '❌ Error';
                 document.getElementById('agent-details').textContent = 'Could not check agent status';
-            }
-        }
+            }}
+        }}
         
-        async function startAgent() {
+        async function startAgent() {{
             const startBtn = document.getElementById('start-agent-btn');
             startBtn.disabled = true;
             startBtn.textContent = '⏳ Starting...';
             
-            try {
-                const response = await fetch('/api/setup-agent', {
+            try {{
+                const response = await fetch('/api/setup-agent', {{
                     method: 'POST',
-                    headers: {
+                    headers: {{
                         'X-API-Key': currentApiKey,
                         'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({})
-                });
+                    }},
+                    body: JSON.stringify({{
+                        action: 'start'
+                    }})
+                }});
                 
                 const data = await response.json();
                 
-                if (data.status === 'success') {
-                    await checkAgentStatus();
-                } else {
-                    alert(data.message || 'Failed to start agent');
+                const messageEl = document.getElementById('agent-message');
+                
+                if (data.status === 'success' || data.status === 'running') {{
+                    messageEl.style.display = 'block';
+                    messageEl.style.background = '#d1fae5';
+                    messageEl.style.color = '#065f46';
+                    messageEl.textContent = '✅ Agent started successfully!';
+                    
+                    // Refresh status after 2 seconds
+                    setTimeout(() => {{
+                        checkAgentStatus();
+                        messageEl.style.display = 'none';
+                    }}, 2000);
+                }} else {{
+                    messageEl.style.display = 'block';
+                    messageEl.style.background = '#fee2e2';
+                    messageEl.style.color = '#991b1b';
+                    messageEl.textContent = '❌ ' + (data.message || 'Failed to start agent');
+                    
                     startBtn.disabled = false;
                     startBtn.textContent = '▶️ Start Agent';
-                }
-            } catch (error) {
-                alert('Error starting agent: ' + error.message);
+                }}
+            }} catch (error) {{
+                console.error('Error starting agent:', error);
+                const messageEl = document.getElementById('agent-message');
+                messageEl.style.display = 'block';
+                messageEl.style.background = '#fee2e2';
+                messageEl.style.color = '#991b1b';
+                messageEl.textContent = '❌ Error starting agent: ' + error.message;
+                
                 startBtn.disabled = false;
                 startBtn.textContent = '▶️ Start Agent';
-            }
-        }
+            }}
+        }}
         
-        async function stopAgent() {
+        async function stopAgent() {{
             const stopBtn = document.getElementById('stop-agent-btn');
             stopBtn.disabled = true;
             stopBtn.textContent = '⏳ Stopping...';
             
-            try {
-                const response = await fetch('/api/stop-agent', {
+            try {{
+                const response = await fetch('/api/stop-agent', {{
                     method: 'POST',
-                    headers: {
+                    headers: {{
                         'X-API-Key': currentApiKey,
                         'Content-Type': 'application/json'
-                    }
-                });
+                    }}
+                }});
                 
                 const data = await response.json();
                 
-                if (data.status === 'success') {
-                    await checkAgentStatus();
-                } else {
-                    alert(data.message || 'Failed to stop agent');
-                }
+                const messageEl = document.getElementById('agent-message');
+                
+                if (data.status === 'success' || data.status === 'stopped') {{
+                    messageEl.style.display = 'block';
+                    messageEl.style.background = '#d1fae5';
+                    messageEl.style.color = '#065f46';
+                    messageEl.textContent = '✅ Agent stopped successfully!';
+                    
+                    // Refresh status after 2 seconds
+                    setTimeout(() => {{
+                        checkAgentStatus();
+                        messageEl.style.display = 'none';
+                    }}, 2000);
+                }} else {{
+                    messageEl.style.display = 'block';
+                    messageEl.style.background = '#fee2e2';
+                    messageEl.style.color = '#991b1b';
+                    messageEl.textContent = '❌ ' + (data.message || 'Failed to stop agent');
+                    
+                    stopBtn.disabled = false;
+                    stopBtn.textContent = '⏸️ Stop Agent';
+                }}
+            }} catch (error) {{
+                console.error('Error stopping agent:', error);
+                const messageEl = document.getElementById('agent-message');
+                messageEl.style.display = 'block';
+                messageEl.style.background = '#fee2e2';
+                messageEl.style.color = '#991b1b';
+                messageEl.textContent = '❌ Error stopping agent: ' + error.message;
                 
                 stopBtn.disabled = false;
                 stopBtn.textContent = '⏸️ Stop Agent';
-            } catch (error) {
-                alert('Error stopping agent: ' + error.message);
-                stopBtn.disabled = false;
-                stopBtn.textContent = '⏸️ Stop Agent';
-            }
-        }
+            }}
+        }}
         
-        // ═══════════════════════════════════════════════════════════════
-        // Helper Functions
-        // ═══════════════════════════════════════════════════════════════
-        
-        function showError(elementId, message) {
+        function showError(elementId, message) {{
             const el = document.getElementById(elementId);
             el.className = 'error';
-            el.innerHTML = '❌ ' + message;
+            el.innerHTML = '❌ ' + message;  // Use innerHTML to render HTML tags
             el.style.display = 'block';
-        }
+        }}
         
-        function showSuccess(elementId, message) {
+        function showSuccess(elementId, message) {{
             const el = document.getElementById(elementId);
             el.className = 'success';
-            el.innerHTML = '✅ ' + message;
+            el.textContent = '✅ ' + message;
             el.style.display = 'block';
-        }
+        }}
     </script>
 </body>
 </html>
