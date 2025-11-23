@@ -3,14 +3,15 @@ Nike Rocket - Balance Checker
 ==============================
 Automated balance monitoring and deposit/withdrawal detection.
 
-FULLY CORRECTED VERSION:
+FULLY CORRECTED VERSION FOR KRAKEN FUTURES:
 - Uses follower_users table (not follower_agents)
 - Uses api_key column (not user_id)  
 - Uses pnl_usd column (not pnl)
 - Proper integer FK handling
+- KRAKEN FUTURES API support (not Spot)
 
 Author: Nike Rocket Team
-Updated: November 23, 2025
+Updated: November 24, 2025
 """
 import asyncio
 import asyncpg
@@ -19,6 +20,11 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 import logging
 from cryptography.fernet import Fernet
+import hmac
+import hashlib
+import time
+import base64
+import json
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -51,6 +57,7 @@ class BalanceChecker:
     Monitors user Kraken balances and detects deposits/withdrawals
     
     CORRECTED: Uses follower_users table and api_key column
+    UPDATED: Uses Kraken Futures API
     """
     
     def __init__(self, db_pool):
@@ -178,27 +185,63 @@ class BalanceChecker:
         api_key: str, 
         api_secret: str
     ) -> Decimal:
-        """Get current USDT balance from Kraken"""
+        """
+        Get current balance from Kraken FUTURES account
+        
+        UPDATED: Uses Kraken Futures API v3
+        """
         try:
-            import krakenex
-            from pykrakenapi import KrakenAPI
+            import aiohttp
             
-            kraken = krakenex.API(key=api_key, secret=api_secret)
-            k = KrakenAPI(kraken)
+            # Kraken Futures API endpoint
+            url = "https://futures.kraken.com/derivatives/api/v3/accounts"
             
-            balance = k.get_account_balance()
+            # Create authentication
+            nonce = str(int(time.time() * 1000))
             
-            # Try USDT, ZUSD, or USD
-            usdt_balance = 0
-            for currency in ['USDT', 'ZUSD', 'USD']:
-                if currency in balance.index:
-                    usdt_balance = float(balance.loc[currency]['vol'])
-                    break
+            # Prepare the message for signing
+            endpoint = "/derivatives/api/v3/accounts"
+            message = nonce + "GET" + endpoint
+            message_encoded = message.encode('utf-8')
             
-            return Decimal(str(usdt_balance))
+            # Decode the secret
+            secret_decoded = base64.b64decode(api_secret)
             
+            # Create signature
+            signature = hmac.new(secret_decoded, message_encoded, hashlib.sha512)
+            signature_b64 = base64.b64encode(signature.digest()).decode()
+            
+            # Headers
+            headers = {
+                "APIKey": api_key,
+                "Nonce": nonce,
+                "Authent": signature_b64
+            }
+            
+            # Make request
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        # Get account balance
+                        if "accounts" in data and len(data["accounts"]) > 0:
+                            # Get balance in USD (balanceValue is the total account value)
+                            balance = data["accounts"][0].get("balanceValue", 0)
+                            logger.info(f"✅ Retrieved Kraken Futures balance: ${float(balance):.2f}")
+                            return Decimal(str(balance))
+                        
+                        logger.warning("No accounts found in Kraken Futures response")
+                        return Decimal('0')
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Kraken Futures API error: {response.status} - {error_text}")
+                        return None
+                        
         except Exception as e:
-            logger.error(f"Error getting Kraken balance: {e}")
+            logger.error(f"Error getting Kraken Futures balance: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
 
