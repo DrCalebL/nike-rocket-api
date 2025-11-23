@@ -253,14 +253,15 @@
     <script>
         function showAlert(message, type) {
             const alert = document.getElementById('alert');
-            alert.textContent = message;
+            alert.innerHTML = message;  // Use innerHTML to allow formatting
             alert.className = `alert ${type}`;
             alert.style.display = 'block';
             
             if (type === 'success') {
+                // Longer delay to let user read the message
                 setTimeout(() => {
                     window.location.href = `/dashboard?key=${document.getElementById('api-key').value}`;
-                }, 2000);
+                }, 5000);  // 5 seconds instead of 2
             }
         }
         
@@ -306,7 +307,14 @@
                 const data = await response.json();
                 
                 if (response.ok && data.status === 'success') {
-                    showAlert('✅ Agent configured successfully! Redirecting to dashboard...', 'success');
+                    showAlert(
+                        '✅ <strong>Agent configured successfully!</strong><br><br>' +
+                        '⏳ Your trading agent will be ready in <strong>5 minutes</strong>.<br><br>' +
+                        '<small>You can check your dashboard now, but portfolio tracking will be ' +
+                        'available once the agent finishes configuration.</small><br><br>' +
+                        '<small style="color: #6b7280;">Redirecting to dashboard in 5 seconds...</small>', 
+                        'success'
+                    );
                 } else {
                     showAlert(`Error: ${data.message || 'Failed to setup agent'}`, 'error');
                     btn.disabled = false;
