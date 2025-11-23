@@ -1363,8 +1363,10 @@ async def portfolio_dashboard(request: Request):
                     // Show error with setup link if needed
                     if (data.message.includes('set up your trading agent')) {{
                         showError('setup-message', 
-                            data.message + ' <br><br>' +
-                            '<a href="/setup?key=' + currentApiKey + '" style="color: white; text-decoration: underline;">→ Go to Agent Setup</a>');
+                            data.message + '<br><br>' +
+                            '<a href="/setup?key=' + currentApiKey + '" ' +
+                            'style="color: #ffffff; text-decoration: underline; font-weight: bold;">' +
+                            '→ Go to Agent Setup</a>');
                     }} else {{
                         showError('setup-message', data.message);
                     }}
@@ -2039,7 +2041,7 @@ ROI: ${{roi}}`;
         function showError(elementId, message) {{
             const el = document.getElementById(elementId);
             el.className = 'error';
-            el.textContent = '❌ ' + message;
+            el.innerHTML = '❌ ' + message;  // Use innerHTML to render HTML tags
             el.style.display = 'block';
         }}
         
