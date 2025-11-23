@@ -1331,453 +1331,779 @@ async def portfolio_dashboard(request: Request):
         </div>
     </div>
     
-<script>
-    let currentApiKey = '{api_key}';
-    let currentPeriod = '30d';
-    
-    // On page load
-    if (currentApiKey) {{
-        document.getElementById('api-key-input').value = currentApiKey;
-        login();
-    }}
-    
-    // ═══════════════════════════════════════════════════════════════
-    // NEW: Agent Status Functions
-    // ═══════════════════════════════════════════════════════════════
-    
-    async function checkAgentStatusAPI() {{
-        try {{
-            const response = await fetch(`/api/agent-status?key=${{currentApiKey}}`, {{
-                headers: {{'X-API-Key': currentApiKey}}
-            }});
-            
-            const data = await response.json();
-            return data;
-            
-        }} catch (error) {{
-            console.error('Error checking agent status:', error);
-            return {{ status: 'error', message: error.message }};
-        }}
-    }}
-    
-    async function displayAgentStatus() {{
-        try {{
-            const statusData = await checkAgentStatusAPI();
-            
-            const statusElement = document.getElementById('agent-status-display');
-            if (!statusElement) return;
-            
-            let statusHTML = '';
-            let statusClass = '';
-            
-            if (statusData.status === 'active') {{
-                statusHTML = '🟢 <strong>Agent Active</strong> - Following signals';
-                statusClass = 'status-active';
-            }} else if (statusData.status === 'configuring') {{
-                statusHTML = `⏳ <strong>Configuring</strong> - Ready in ${{statusData.ready_in_minutes}} min (${{statusData.setup_complete_percentage}}%)`;
-                statusClass = 'status-configuring';
-            }} else if (statusData.status === 'ready') {{
-                statusHTML = '🟡 <strong>Ready</strong> - Agent configured';
-                statusClass = 'status-ready';
-            }} else if (statusData.status === 'not_configured') {{
-                statusHTML = '🔴 <strong>Not Configured</strong> - <a href="/setup?key=' + currentApiKey + '" style="color: #dc2626;">Complete setup</a>';
-                statusClass = 'status-error';
-            }} else {{
-                statusHTML = '⚠️ <strong>Unknown</strong> - ' + statusData.message;
-                statusClass = 'status-unknown';
-            }}
-            
-            statusElement.innerHTML = statusHTML;
-            statusElement.className = 'agent-status ' + statusClass;
-            
-        }} catch (error) {{
-            console.error('Error displaying agent status:', error);
-        }}
-    }}
-    
-    let agentStatusInterval = null;
-    
-    function startAgentStatusMonitoring() {{
-        if (agentStatusInterval) {{
-            clearInterval(agentStatusInterval);
-        }}
+    <script>
+        let currentApiKey = '{api_key}';
+        let currentPeriod = '30d';
         
-        displayAgentStatus();
+        // On page load
+        if (currentApiKey) {
+            document.getElementById('api-key-input').value = currentApiKey;
+            login();
+        }
         
-        agentStatusInterval = setInterval(() => {{
+        // ═══════════════════════════════════════════════════════════════
+        // NEW: Agent Status Monitoring Functions
+        // ═══════════════════════════════════════════════════════════════
+        
+        async function checkAgentStatusAPI() {
+            try {
+                const response = await fetch(`/api/agent-status?key=${currentApiKey}`, {
+                    headers: {'X-API-Key': currentApiKey}
+                });
+                
+                const data = await response.json();
+                return data;
+                
+            } catch (error) {
+                console.error('Error checking agent status:', error);
+                return { status: 'error', message: error.message };
+            }
+        }
+        
+        async function displayAgentStatus() {
+            try {
+                const statusData = await checkAgentStatusAPI();
+                
+                const statusElement = document.getElementById('agent-status-display');
+                if (!statusElement) return;
+                
+                let statusHTML = '';
+                let statusClass = '';
+                
+                if (statusData.status === 'active') {
+                    statusHTML = '🟢 <strong>Agent Active</strong> - Following signals';
+                    statusClass = 'status-active';
+                } else if (statusData.status === 'configuring') {
+                    statusHTML = `⏳ <strong>Configuring</strong> - Ready in ${statusData.ready_in_minutes} min (${statusData.setup_complete_percentage}%)`;
+                    statusClass = 'status-configuring';
+                } else if (statusData.status === 'ready') {
+                    statusHTML = '🟡 <strong>Ready</strong> - Agent configured';
+                    statusClass = 'status-ready';
+                } else if (statusData.status === 'not_configured') {
+                    statusHTML = '🔴 <strong>Not Configured</strong> - <a href="/setup?key=' + currentApiKey + '" style="color: #dc2626;">Complete setup</a>';
+                    statusClass = 'status-error';
+                } else {
+                    statusHTML = '⚠️ <strong>Unknown</strong> - ' + statusData.message;
+                    statusClass = 'status-unknown';
+                }
+                
+                statusElement.innerHTML = statusHTML;
+                statusElement.className = 'agent-status ' + statusClass;
+                
+            } catch (error) {
+                console.error('Error displaying agent status:', error);
+            }
+        }
+        
+        let agentStatusInterval = null;
+        
+        function startAgentStatusMonitoring() {
+            if (agentStatusInterval) {
+                clearInterval(agentStatusInterval);
+            }
+            
             displayAgentStatus();
-        }}, 30000); // Update every 30 seconds
-    }}
-    
-    function stopAgentStatusMonitoring() {{
-        if (agentStatusInterval) {{
-            clearInterval(agentStatusInterval);
-            agentStatusInterval = null;
-        }}
-    }}
-    
-    // ═══════════════════════════════════════════════════════════════
-    // Login and Authentication
-    // ═══════════════════════════════════════════════════════════════
-    
-    function login() {{
-        const apiKey = document.getElementById('api-key-input').value.trim();
+            
+            agentStatusInterval = setInterval(() => {
+                displayAgentStatus();
+            }, 30000); // Update every 30 seconds
+        }
         
-        if (!apiKey) {{
-            showError('login-error', 'Please enter your API key');
-            return;
-        }}
+        function stopAgentStatusMonitoring() {
+            if (agentStatusInterval) {
+                clearInterval(agentStatusInterval);
+                agentStatusInterval = null;
+            }
+        }
         
-        if (!apiKey.startsWith('nk_')) {{
-            showError('login-error', 'Invalid API key format. Should start with "nk_"');
-            return;
-        }}
+        // ═══════════════════════════════════════════════════════════════
+        // Login and Authentication
+        // ═══════════════════════════════════════════════════════════════
         
-        currentApiKey = apiKey;
-        document.getElementById('login-error').style.display = 'none';
+        function login() {
+            const apiKey = document.getElementById('api-key-input').value.trim();
+            
+            if (!apiKey) {
+                showError('login-error', 'Please enter your API key');
+                return;
+            }
+            
+            if (!apiKey.startsWith('nk_')) {
+                showError('login-error', 'Invalid API key format. Should start with "nk_"');
+                return;
+            }
+            
+            currentApiKey = apiKey;
+            document.getElementById('login-error').style.display = 'none';
+            
+            checkPortfolioStatus();
+        }
         
-        checkPortfolioStatus();
-    }}
-    
-    function logout() {{
-        stopAgentStatusMonitoring();
-        document.getElementById('dashboard').style.display = 'none';
-        document.getElementById('login-screen').style.display = 'block';
-        document.getElementById('setup-wizard').style.display = 'none';
-        currentApiKey = '';
-        document.getElementById('api-key-input').value = '';
-    }}
-    
-    // ═══════════════════════════════════════════════════════════════
-    // Portfolio Status Check (UPDATED WITH AGENT STATUS)
-    // ═══════════════════════════════════════════════════════════════
-    
-    async function checkPortfolioStatus() {{
-        try {{
-            // STEP 1: Check agent status first
+        function logout() {
+            stopAgentStatusMonitoring();
+            document.getElementById('dashboard').style.display = 'none';
+            document.getElementById('login-screen').style.display = 'block';
+            document.getElementById('setup-wizard').style.display = 'none';
+            currentApiKey = '';
+            document.getElementById('api-key-input').value = '';
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // Portfolio Status Check (UPDATED WITH AGENT STATUS)
+        // ═══════════════════════════════════════════════════════════════
+        
+        async function checkPortfolioStatus() {
+            try {
+                // STEP 1: Check agent status first
+                const statusData = await checkAgentStatusAPI();
+                
+                if (statusData.status === 'configuring') {
+                    showSetupWizard();
+                    return;
+                }
+                
+                if (statusData.status === 'not_configured') {
+                    showSetupWizard();
+                    return;
+                }
+                
+                // STEP 2: Check portfolio status
+                const response = await fetch(`/api/portfolio/balance-summary?key=${currentApiKey}`, {
+                    headers: {'X-API-Key': currentApiKey}
+                });
+                
+                if (response.status === 401) {
+                    showError('login-error', 'Invalid API key. Please check and try again.');
+                    return;
+                }
+                
+                if (!response.ok) {
+                    console.error('Portfolio stats error:', response.status);
+                    showSetupWizard();
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'success' || data.total_profit !== undefined) {
+                    showDashboard(data);
+                    await loadBalanceSummary();
+                    await loadTransactionHistory();
+                    await displayAgentStatus();
+                    startAgentStatusMonitoring();
+                } else if (data.status === 'not_initialized') {
+                    showSetupWizard();
+                } else {
+                    showSetupWizard();
+                }
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showSetupWizard();
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // Setup Wizard (UPDATED WITH CONFIGURING STATE)
+        // ═══════════════════════════════════════════════════════════════
+        
+        async function showSetupWizard() {
             const statusData = await checkAgentStatusAPI();
             
-            if (statusData.status === 'configuring') {{
-                showSetupWizard();
-                return;
-            }}
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('setup-wizard').style.display = 'block';
+            document.getElementById('dashboard').style.display = 'none';
             
-            if (statusData.status === 'not_configured') {{
-                showSetupWizard();
-                return;
-            }}
+            const setupMessage = document.getElementById('setup-message');
+            const startButton = document.querySelector('.btn');
             
-            // STEP 2: Check portfolio status
-            const response = await fetch(`/api/portfolio/balance-summary?key=${{currentApiKey}}`, {{
-                headers: {{'X-API-Key': currentApiKey}}
-            }});
-            
-            if (response.status === 401) {{
-                showError('login-error', 'Invalid API key. Please check and try again.');
-                return;
-            }}
-            
-            if (!response.ok) {{
-                console.error('Portfolio stats error:', response.status);
-                showSetupWizard();
-                return;
-            }}
-            
-            const data = await response.json();
-            
-            if (data.status === 'success' || data.total_profit !== undefined) {{
-                showDashboard(data);
-                await loadBalanceSummary();
-                await loadTransactionHistory();
-                await displayAgentStatus();
-            }} else if (data.status === 'not_initialized') {{
-                showSetupWizard();
-            }} else {{
-                showSetupWizard();
-            }}
-            
-        }} catch (error) {{
-            console.error('Error:', error);
-            showSetupWizard();
-        }}
-    }}
-    
-    // ═══════════════════════════════════════════════════════════════
-    // Setup Wizard (UPDATED WITH CONFIGURING STATE)
-    // ═══════════════════════════════════════════════════════════════
-    
-    async function showSetupWizard() {{
-        const statusData = await checkAgentStatusAPI();
-        
-        document.getElementById('login-screen').style.display = 'none';
-        document.getElementById('setup-wizard').style.display = 'block';
-        document.getElementById('dashboard').style.display = 'none';
-        
-        const setupMessage = document.getElementById('setup-message');
-        const startButton = document.querySelector('.btn');
-        
-        if (statusData.status === 'configuring') {{
-            // Agent still being set up - show wait message
-            if (setupMessage) {{
-                setupMessage.innerHTML = `
-                    ⏳ <strong>Your trading agent is being configured.</strong>
-                    <br><br>
-                    Please wait approximately <strong>${{statusData.ready_in_minutes}} minute(s)</strong> before initializing your portfolio.
-                    <br><br>
-                    <div style="background: #e0e7ff; padding: 10px; border-radius: 8px; margin-top: 12px;">
-                        <small>Setup Progress: ${{statusData.setup_complete_percentage}}%</small>
-                        <div style="background: #cbd5e1; height: 8px; border-radius: 4px; margin-top: 6px; overflow: hidden;">
-                            <div style="background: #667eea; height: 100%; width: ${{statusData.setup_complete_percentage}}%; transition: width 0.5s;"></div>
+            if (statusData.status === 'configuring') {
+                if (setupMessage) {
+                    setupMessage.innerHTML = `
+                        ⏳ <strong>Your trading agent is being configured.</strong>
+                        <br><br>
+                        Please wait approximately <strong>${statusData.ready_in_minutes} minute(s)</strong> before initializing your portfolio.
+                        <br><br>
+                        <div style="background: #e0e7ff; padding: 10px; border-radius: 8px; margin-top: 12px;">
+                            <small>Setup Progress: ${statusData.setup_complete_percentage}%</small>
+                            <div style="background: #cbd5e1; height: 8px; border-radius: 4px; margin-top: 6px; overflow: hidden;">
+                                <div style="background: #667eea; height: 100%; width: ${statusData.setup_complete_percentage}%; transition: width 0.5s;"></div>
+                            </div>
                         </div>
-                    </div>
-                    <br>
-                    <small style="color: #6b7280;">
-                        <a href="javascript:location.reload()" style="color: #667eea; text-decoration: underline;">
-                            Click here to refresh and check status
-                        </a>
-                    </small>
-                `;
-                setupMessage.className = 'info';
-                setupMessage.style.display = 'block';
-            }}
-            
-            if (startButton) {{
-                startButton.disabled = true;
-                startButton.textContent = `⏳ Agent Configuring (${{statusData.ready_in_minutes}} min remaining)`;
-                startButton.style.cursor = 'not-allowed';
-                startButton.style.background = '#9ca3af';
-            }}
-            
-            // Auto-refresh after the remaining time + 10 seconds
-            const refreshTime = (statusData.ready_in_minutes * 60 + 10) * 1000;
-            setTimeout(() => {{
-                location.reload();
-            }}, refreshTime);
-            
-        }} else {{
-            // Agent ready or not configured - enable button
-            if (setupMessage) {{
-                setupMessage.innerHTML = '';
-                setupMessage.style.display = 'none';
-            }}
-            
-            if (startButton) {{
-                startButton.disabled = false;
-                startButton.textContent = '🚀 Start Tracking';
-                startButton.style.cursor = 'pointer';
-                startButton.style.background = '#667eea';
-            }}
-        }}
-    }}
-    
-    // ═══════════════════════════════════════════════════════════════
-    // Portfolio Initialization (UPDATED WITH AGENT CHECK)
-    // ═══════════════════════════════════════════════════════════════
-    
-    async function initializePortfolio() {{
-        try {{
-            // STEP 1: Check if agent is ready
-            showSuccess('setup-message', '🔍 Checking agent status...');
-            
-            const statusData = await checkAgentStatusAPI();
-            
-            if (statusData.status === 'configuring') {{
-                showError('setup-message', 
-                    `⚠️ Your trading agent is not ready yet. ` +
-                    `<br><br>Please wait <strong>${{statusData.ready_in_minutes}} more minute(s)</strong> and ` +
-                    `<a href="javascript:location.reload()" style="color: #ffffff; text-decoration: underline;">refresh this page</a>.`);
-                return;
-            }}
-            
-            if (statusData.status === 'not_configured') {{
-                showError('setup-message', 
-                    'Please set up your trading agent first.<br><br>' +
-                    '<a href="/setup?key=' + currentApiKey + '" ' +
-                    'style="color: #ffffff; text-decoration: underline; font-weight: bold;">' +
-                    '→ Go to Agent Setup</a>');
-                return;
-            }}
-            
-            if (statusData.status === 'error') {{
-                showError('setup-message', 
-                    '⚠️ Error checking agent status. Please try again or contact support.');
-                return;
-            }}
-            
-            // STEP 2: Proceed with portfolio initialization
-            showSuccess('setup-message', '🔍 Detecting your Kraken balance...');
-            
-            const response = await fetch('/api/portfolio/initialize', {{
-                method: 'POST',
-                headers: {{
-                    'X-API-Key': currentApiKey,
-                    'Content-Type': 'application/json'
-                }},
-                body: JSON.stringify({{}})
-            }});
-            
-            const data = await response.json();
-            
-            if (data.status === 'success') {{
-                showSuccess('setup-message', 
-                    `✅ Portfolio initialized with $${{data.initial_capital.toLocaleString()}} detected from your Kraken account!`);
-                setTimeout(() => checkPortfolioStatus(), 2000);
-            }} else if (data.status === 'already_initialized') {{
-                showSuccess('setup-message', 'Portfolio already initialized! Loading dashboard...');
-                setTimeout(() => checkPortfolioStatus(), 1000);
-            }} else if (data.status === 'error') {{
-                if (data.message.includes('set up your trading agent')) {{
+                        <br>
+                        <small style="color: #6b7280;">
+                            <a href="javascript:location.reload()" style="color: #667eea; text-decoration: underline;">
+                                Click here to refresh and check status
+                            </a>
+                        </small>
+                    `;
+                    setupMessage.className = 'info';
+                    setupMessage.style.display = 'block';
+                }
+                
+                if (startButton) {
+                    startButton.disabled = true;
+                    startButton.textContent = `⏳ Agent Configuring (${statusData.ready_in_minutes} min remaining)`;
+                    startButton.style.cursor = 'not-allowed';
+                    startButton.style.background = '#9ca3af';
+                }
+                
+                const refreshTime = (statusData.ready_in_minutes * 60 + 10) * 1000;
+                setTimeout(() => {
+                    location.reload();
+                }, refreshTime);
+                
+            } else {
+                if (setupMessage) {
+                    setupMessage.innerHTML = '';
+                    setupMessage.style.display = 'none';
+                }
+                
+                if (startButton) {
+                    startButton.disabled = false;
+                    startButton.textContent = '🚀 Start Tracking';
+                    startButton.style.cursor = 'pointer';
+                    startButton.style.background = '#667eea';
+                }
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // Portfolio Initialization (UPDATED WITH AGENT CHECK)
+        // ═══════════════════════════════════════════════════════════════
+        
+        async function initializePortfolio() {
+            try {
+                showSuccess('setup-message', '🔍 Checking agent status...');
+                
+                const statusData = await checkAgentStatusAPI();
+                
+                if (statusData.status === 'configuring') {
                     showError('setup-message', 
-                        data.message + '<br><br>' +
+                        `⚠️ Your trading agent is not ready yet. ` +
+                        `<br><br>Please wait <strong>${statusData.ready_in_minutes} more minute(s)</strong> and ` +
+                        `<a href="javascript:location.reload()" style="color: #ffffff; text-decoration: underline;">refresh this page</a>.`);
+                    return;
+                }
+                
+                if (statusData.status === 'not_configured') {
+                    showError('setup-message', 
+                        'Please set up your trading agent first.<br><br>' +
                         '<a href="/setup?key=' + currentApiKey + '" ' +
                         'style="color: #ffffff; text-decoration: underline; font-weight: bold;">' +
                         '→ Go to Agent Setup</a>');
-                }} else {{
-                    showError('setup-message', data.message);
-                }}
-            }} else {{
-                showError('setup-message', data.message || 'Failed to initialize portfolio');
-            }}
-            
-        }} catch (error) {{
-            showError('setup-message', 'Error initializing portfolio: ' + error.message);
-        }}
-    }}
-    
-    // ═══════════════════════════════════════════════════════════════
-    // Dashboard Display (UPDATED TO START MONITORING)
-    // ═══════════════════════════════════════════════════════════════
-    
-    function showDashboard(stats) {{
-        document.getElementById('login-screen').style.display = 'none';
-        document.getElementById('setup-wizard').style.display = 'none';
-        document.getElementById('dashboard').style.display = 'block';
+                    return;
+                }
+                
+                if (statusData.status === 'error') {
+                    showError('setup-message', 
+                        '⚠️ Error checking agent status. Please try again or contact support.');
+                    return;
+                }
+                
+                showSuccess('setup-message', '🔍 Detecting your Kraken balance...');
+                
+                const response = await fetch('/api/portfolio/initialize', {
+                    method: 'POST',
+                    headers: {
+                        'X-API-Key': currentApiKey,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({})
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    showSuccess('setup-message', 
+                        `✅ Portfolio initialized with $${data.initial_capital.toLocaleString()} detected from your Kraken account!`);
+                    setTimeout(() => checkPortfolioStatus(), 2000);
+                } else if (data.status === 'already_initialized') {
+                    showSuccess('setup-message', 'Portfolio already initialized! Loading dashboard...');
+                    setTimeout(() => checkPortfolioStatus(), 1000);
+                } else if (data.status === 'error') {
+                    if (data.message.includes('set up your trading agent')) {
+                        showError('setup-message', 
+                            data.message + '<br><br>' +
+                            '<a href="/setup?key=' + currentApiKey + '" ' +
+                            'style="color: #ffffff; text-decoration: underline; font-weight: bold;">' +
+                            '→ Go to Agent Setup</a>');
+                    } else {
+                        showError('setup-message', data.message);
+                    }
+                } else {
+                    showError('setup-message', data.message || 'Failed to initialize portfolio');
+                }
+                
+            } catch (error) {
+                showError('setup-message', 'Error initializing portfolio: ' + error.message);
+            }
+        }
         
-        // Start monitoring agent status
-        startAgentStatusMonitoring();
-    }}
-    
-    // ═══════════════════════════════════════════════════════════════
-    // Balance Summary
-    // ═══════════════════════════════════════════════════════════════
-    
-    async function loadBalanceSummary() {{
-        try {{
-            const response = await fetch(`/api/portfolio/balance-summary?key=${{currentApiKey}}`);
-            const data = await response.json();
-            
-            if (data.status === 'success') {{
-                document.getElementById('initial-capital-display').textContent = `$${{data.initial_capital.toLocaleString()}}`;
-                document.getElementById('current-value').textContent = `$${{data.current_value.toLocaleString()}}`;
+        // ═══════════════════════════════════════════════════════════════
+        // Dashboard Display
+        // ═══════════════════════════════════════════════════════════════
+        
+        function showDashboard(stats) {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('setup-wizard').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // Balance Summary
+        // ═══════════════════════════════════════════════════════════════
+        
+        async function loadBalanceSummary() {
+            try {
+                const response = await fetch(`/api/portfolio/balance-summary?key=${currentApiKey}`);
+                const data = await response.json();
                 
-                const netDeposits = data.total_deposits - data.total_withdrawals;
-                document.getElementById('net-deposits').textContent = `$${{netDeposits.toLocaleString()}}`;
-                document.getElementById('net-deposits').style.color = netDeposits >= 0 ? '#10b981' : '#ef4444';
-                
-                const totalProfit = data.current_value - data.initial_capital - netDeposits;
-                document.getElementById('total-profit-overview').textContent = `$${{totalProfit.toLocaleString()}}`;
-                document.getElementById('total-profit-overview').style.color = totalProfit >= 0 ? '#10b981' : '#ef4444';
-                
-                document.getElementById('total-deposits').textContent = `+$${{data.total_deposits.toLocaleString()}}`;
-                document.getElementById('total-withdrawals').textContent = `-$${{data.total_withdrawals.toLocaleString()}}`;
-            }}
-        }} catch (error) {{
-            console.error('Error loading balance summary:', error);
-        }}
-    }}
-    
-    // ═══════════════════════════════════════════════════════════════
-    // Transaction History
-    // ═══════════════════════════════════════════════════════════════
-    
-    async function loadTransactionHistory() {{
-        try {{
-            const response = await fetch(`/api/portfolio/transactions?key=${{currentApiKey}}&limit=50`);
-            const data = await response.json();
-            
-            const container = document.getElementById('transaction-list');
-            
-            if (data.status === 'success' && data.transactions && data.transactions.length > 0) {{
-                let html = '<div style="display: grid; gap: 12px;">';
-                
-                data.transactions.forEach(tx => {{
-                    const date = new Date(tx.created_at).toLocaleString();
-                    const typeClass = tx.transaction_type === 'deposit' ? 'deposit' : 'withdrawal';
-                    const typeIcon = tx.transaction_type === 'deposit' ? '⬆️' : '⬇️';
-                    const amountColor = tx.transaction_type === 'deposit' ? '#10b981' : '#ef4444';
-                    const amountPrefix = tx.transaction_type === 'deposit' ? '+' : '-';
+                if (data.status === 'success') {
+                    document.getElementById('initial-capital-display').textContent = `$${data.initial_capital.toLocaleString()}`;
+                    document.getElementById('current-value').textContent = `$${data.current_value.toLocaleString()}`;
                     
-                    html += `
-                        <div style="
-                            background: white;
-                            border: 1px solid #e5e7eb;
-                            border-radius: 8px;
-                            padding: 16px;
-                            display: grid;
-                            grid-template-columns: auto 1fr auto;
-                            gap: 12px;
-                            align-items: center;
-                        ">
-                            <div style="font-size: 24px;">${{typeIcon}}</div>
-                            <div>
-                                <div style="font-weight: 600; color: #1f2937; margin-bottom: 4px;">
-                                    ${{tx.transaction_type.charAt(0).toUpperCase() + tx.transaction_type.slice(1)}}
-                                </div>
-                                <div style="font-size: 13px; color: #6b7280;">
-                                    ${{date}}
-                                </div>
-                                ${{tx.notes ? `<div style="font-size: 12px; color: #9ca3af; margin-top: 4px;">${{tx.notes}}</div>` : ''}}
-                            </div>
+                    const netDeposits = data.total_deposits - data.total_withdrawals;
+                    document.getElementById('net-deposits').textContent = `$${netDeposits.toLocaleString()}`;
+                    document.getElementById('net-deposits').style.color = netDeposits >= 0 ? '#10b981' : '#ef4444';
+                    
+                    const totalProfit = data.current_value - data.initial_capital - netDeposits;
+                    document.getElementById('total-profit-overview').textContent = `$${totalProfit.toLocaleString()}`;
+                    document.getElementById('total-profit-overview').style.color = totalProfit >= 0 ? '#10b981' : '#ef4444';
+                    
+                    document.getElementById('total-deposits').textContent = `+$${data.total_deposits.toLocaleString()}`;
+                    document.getElementById('total-withdrawals').textContent = `-$${data.total_withdrawals.toLocaleString()}`;
+                }
+            } catch (error) {
+                console.error('Error loading balance summary:', error);
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // Transaction History
+        // ═══════════════════════════════════════════════════════════════
+        
+        async function loadTransactionHistory() {
+            try {
+                const response = await fetch(`/api/portfolio/transactions?key=${currentApiKey}&limit=50`);
+                const data = await response.json();
+                
+                const container = document.getElementById('transaction-list');
+                
+                if (data.status === 'success' && data.transactions && data.transactions.length > 0) {
+                    let html = '<div style="display: grid; gap: 12px;">';
+                    
+                    data.transactions.forEach(tx => {
+                        const date = new Date(tx.created_at).toLocaleString();
+                        const typeClass = tx.transaction_type === 'deposit' ? 'deposit' : 'withdrawal';
+                        const typeIcon = tx.transaction_type === 'deposit' ? '⬆️' : '⬇️';
+                        const amountColor = tx.transaction_type === 'deposit' ? '#10b981' : '#ef4444';
+                        const amountPrefix = tx.transaction_type === 'deposit' ? '+' : '-';
+                        
+                        html += `
                             <div style="
-                                font-size: 20px;
-                                font-weight: 700;
-                                color: ${{amountColor}};
+                                background: white;
+                                border: 1px solid #e5e7eb;
+                                border-radius: 8px;
+                                padding: 16px;
+                                display: grid;
+                                grid-template-columns: auto 1fr auto;
+                                gap: 12px;
+                                align-items: center;
                             ">
-                                ${{amountPrefix}}$${{tx.amount.toLocaleString()}}
+                                <div style="font-size: 24px;">${typeIcon}</div>
+                                <div>
+                                    <div style="font-weight: 600; color: #1f2937; margin-bottom: 4px;">
+                                        ${tx.transaction_type.charAt(0).toUpperCase() + tx.transaction_type.slice(1)}
+                                    </div>
+                                    <div style="font-size: 13px; color: #6b7280;">
+                                        ${date}
+                                    </div>
+                                    ${tx.notes ? `<div style="font-size: 12px; color: #9ca3af; margin-top: 4px;">${tx.notes}</div>` : ''}
+                                </div>
+                                <div style="
+                                    font-size: 20px;
+                                    font-weight: 700;
+                                    color: ${amountColor};
+                                ">
+                                    ${amountPrefix}$${tx.amount.toLocaleString()}
+                                </div>
                             </div>
+                        `;
+                    });
+                    
+                    html += '</div>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = `
+                        <div style="text-align: center; padding: 40px; color: #9ca3af;">
+                            <div style="font-size: 48px; margin-bottom: 16px;">📊</div>
+                            <div style="font-size: 16px; font-weight: 600; color: #6b7280;">No transactions yet</div>
+                            <div style="font-size: 14px; margin-top: 8px;">Deposits and withdrawals will appear here</div>
                         </div>
                     `;
-                }});
-                
-                html += '</div>';
-                container.innerHTML = html;
-            }} else {{
-                container.innerHTML = `
-                    <div style="text-align: center; padding: 40px; color: #9ca3af;">
-                        <div style="font-size: 48px; margin-bottom: 16px;">📊</div>
-                        <div style="font-size: 16px; font-weight: 600; color: #6b7280;">No transactions yet</div>
-                        <div style="font-size: 14px; margin-top: 8px;">Deposits and withdrawals will appear here</div>
+                }
+            } catch (error) {
+                console.error('Error loading transactions:', error);
+                document.getElementById('transaction-list').innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: #ef4444;">
+                        Error loading transactions
                     </div>
                 `;
-            }}
-        }} catch (error) {{
-            console.error('Error loading transactions:', error);
-            document.getElementById('transaction-list').innerHTML = `
-                <div style="text-align: center; padding: 40px; color: #ef4444;">
-                    Error loading transactions
-                </div>
-            `;
-        }}
-    }}
-    
-    // ═══════════════════════════════════════════════════════════════
-    // Helper Functions
-    // ═══════════════════════════════════════════════════════════════
-    
-    function showError(elementId, message) {{
-        const el = document.getElementById(elementId);
-        el.className = 'error';
-        el.innerHTML = '❌ ' + message;  // Use innerHTML to render HTML tags
-        el.style.display = 'block';
-    }}
-    
-    function showSuccess(elementId, message) {{
-        const el = document.getElementById(elementId);
-        el.className = 'success';
-        el.innerHTML = '✅ ' + message;  // Use innerHTML for formatting
-        el.style.display = 'block';
-    }}
-</script>
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // OLD FUNCTIONS: Twitter Share & Download (FROM WORKING VERSION)
+        // ═══════════════════════════════════════════════════════════════
+        
+        let selectedBackground = 'charles';
+        let selectorMode = 'download';
+        
+        function toggleBackgroundSelector() {
+            const selector = document.getElementById('background-selector');
+            selector.style.display = selector.style.display === 'none' ? 'block' : 'none';
+        }
+        
+        function showBackgroundSelectorForDownload() {
+            selectorMode = 'download';
+            const btn = document.getElementById('selector-action-btn');
+            btn.textContent = '✅ Download Image';
+            btn.style.background = '#10b981';
+            toggleBackgroundSelector();
+        }
+        
+        function showBackgroundSelectorForTwitter() {
+            selectorMode = 'twitter';
+            const btn = document.getElementById('selector-action-btn');
+            btn.textContent = '𝕏 Share to Twitter';
+            btn.style.background = '#1da1f2';
+            toggleBackgroundSelector();
+        }
+        
+        function handleSelectorAction() {
+            if (selectorMode === 'twitter') {
+                shareToTwitter();
+            } else {
+                downloadPerformanceCard();
+            }
+        }
+        
+        function selectBackground(bgType) {
+            selectedBackground = bgType;
+            
+            document.querySelectorAll('.bg-option').forEach(el => {
+                el.style.border = '3px solid transparent';
+                el.style.transform = 'scale(1)';
+                el.style.boxShadow = 'none';
+            });
+            
+            const selected = document.querySelector(`[data-bg="${bgType}"]`);
+            selected.style.border = '3px solid #667eea';
+            selected.style.transform = 'scale(1.05)';
+            selected.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.5)';
+        }
+        
+        function downloadPerformanceCard() {
+            const profit = document.getElementById('total-profit').textContent;
+            const roi = document.getElementById('roi').textContent;
+            const period = document.getElementById('period-selector').value;
+            
+            const periodLabels = {
+                '7d': '7 days',
+                '30d': '30 days',
+                '90d': '90 days',
+                'all': 'all-time'
+            };
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = 1200;
+            canvas.height = 630;
+            const ctx = canvas.getContext('2d');
+            
+            const backgroundUrls = {
+                'charles': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-charles.png',
+                'casino': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-casino.png',
+                'gaming': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-gaming.png',
+                'money': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-money.png'
+            };
+            
+            const logoUrl = 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/nikepig-logo.png';
+            
+            const bgImage = new Image();
+            bgImage.crossOrigin = 'anonymous';
+            bgImage.onload = function() {
+                ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
+                
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                const logo = new Image();
+                logo.crossOrigin = 'anonymous';
+                logo.onload = function() {
+                    ctx.drawImage(logo, 50, 40, 120, 120);
+                    
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 72px Arial';
+                    ctx.fillText('$NIKEPIG', 200, 110);
+                    
+                    ctx.font = '42px Arial';
+                    ctx.fillText(`Performance: ${periodLabels[period]}`, 200, 160);
+                    
+                    ctx.font = 'bold 120px Arial';
+                    const profitColor = profit.includes('-') ? '#ef4444' : '#10b981';
+                    ctx.fillStyle = profitColor;
+                    ctx.fillText(profit, 100, 340);
+                    
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = '56px Arial';
+                    ctx.fillText(`ROI: ${roi}`, 100, 430);
+                    
+                    ctx.font = '32px Arial';
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                    ctx.fillText('Follow the Nike Rocket 🚀', 100, 550);
+                    
+                    canvas.toBlob(function(blob) {
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'nikepig-performance.png';
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        toggleBackgroundSelector();
+                    });
+                };
+                logo.src = logoUrl;
+            };
+            bgImage.src = backgroundUrls[selectedBackground];
+        }
+        
+        function shareToTwitter() {
+            const profit = document.getElementById('total-profit').textContent;
+            const roi = document.getElementById('roi').textContent;
+            const period = document.getElementById('period-selector').value;
+            
+            const periodLabels = {
+                '7d': '7 days',
+                '30d': '30 days',
+                '90d': '90 days',
+                'all': 'all-time'
+            };
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = 1200;
+            canvas.height = 630;
+            const ctx = canvas.getContext('2d');
+            
+            const backgroundUrls = {
+                'charles': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-charles.png',
+                'casino': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-casino.png',
+                'gaming': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-gaming.png',
+                'money': 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/bg-money.png'
+            };
+            
+            const logoUrl = 'https://raw.githubusercontent.com/DrCalebL/nike-rocket-api/main/static/nikepig-logo.png';
+            
+            const bgImage = new Image();
+            bgImage.crossOrigin = 'anonymous';
+            bgImage.onload = function() {
+                ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
+                
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                const logo = new Image();
+                logo.crossOrigin = 'anonymous';
+                logo.onload = function() {
+                    ctx.drawImage(logo, 50, 40, 120, 120);
+                    
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 72px Arial';
+                    ctx.fillText('$NIKEPIG', 200, 110);
+                    
+                    ctx.font = '42px Arial';
+                    ctx.fillText(`Performance: ${periodLabels[period]}`, 200, 160);
+                    
+                    ctx.font = 'bold 120px Arial';
+                    const profitColor = profit.includes('-') ? '#ef4444' : '#10b981';
+                    ctx.fillStyle = profitColor;
+                    ctx.fillText(profit, 100, 340);
+                    
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = '56px Arial';
+                    ctx.fillText(`ROI: ${roi}`, 100, 430);
+                    
+                    ctx.font = '32px Arial';
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                    ctx.fillText('Follow the Nike Rocket 🚀', 100, 550);
+                    
+                    canvas.toBlob(async function(blob) {
+                        const file = new File([blob], 'nikepig-performance.png', { type: 'image/png' });
+                        
+                        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                            try {
+                                await navigator.share({
+                                    files: [file],
+                                    title: '$NIKEPIG Trading Performance',
+                                    text: `My $NIKEPIG trading results: ${profit} profit (${roi} ROI) over ${periodLabels[period]}! 🚀\n\nFollow the Nike Rocket!`
+                                });
+                                toggleBackgroundSelector();
+                            } catch (err) {
+                                if (err.name !== 'AbortError') {
+                                    console.error('Share failed:', err);
+                                    fallbackTwitterShare(profit, roi, periodLabels[period]);
+                                }
+                            }
+                        } else {
+                            fallbackTwitterShare(profit, roi, periodLabels[period]);
+                        }
+                    });
+                };
+                logo.src = logoUrl;
+            };
+            bgImage.src = backgroundUrls[selectedBackground];
+        }
+        
+        function fallbackTwitterShare(profit, roi, periodLabel) {
+            const text = `My $NIKEPIG trading results: ${profit} profit (${roi} ROI) over ${periodLabel}! 🚀\n\nFollow the Nike Rocket!`;
+            const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
+            window.open(twitterUrl, '_blank');
+            toggleBackgroundSelector();
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // OLD FUNCTIONS: Agent Start/Stop Control
+        // ═══════════════════════════════════════════════════════════════
+        
+        async function checkAgentStatus() {
+            try {
+                const response = await fetch('/api/agent-status', {
+                    headers: {'X-API-Key': currentApiKey}
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'running') {
+                    document.getElementById('agent-status-badge').innerHTML = '🟢 Running';
+                    document.getElementById('agent-status-badge').style.background = '#d1fae5';
+                    document.getElementById('agent-status-badge').style.color = '#065f46';
+                    
+                    document.getElementById('start-agent-btn').style.display = 'none';
+                    document.getElementById('stop-agent-btn').style.display = 'block';
+                    
+                    if (data.exchange && data.pair) {
+                        document.getElementById('agent-details').textContent = 
+                            `Trading ${data.pair} on ${data.exchange}`;
+                    }
+                } else if (data.status === 'stopped' || data.status === 'not_found') {
+                    document.getElementById('agent-status-badge').innerHTML = '🔴 Stopped';
+                    document.getElementById('agent-status-badge').style.background = '#fee2e2';
+                    document.getElementById('agent-status-badge').style.color = '#991b1b';
+                    
+                    document.getElementById('start-agent-btn').style.display = 'block';
+                    document.getElementById('stop-agent-btn').style.display = 'none';
+                    
+                    if (data.status === 'not_found') {
+                        document.getElementById('agent-details').innerHTML = 
+                            '<a href="/setup" style="color: #667eea;">Set up your agent first →</a>';
+                    } else {
+                        document.getElementById('agent-details').textContent = 
+                            data.message || 'Agent is not running';
+                    }
+                } else {
+                    document.getElementById('agent-status-badge').innerHTML = '⚠️ Unknown';
+                    document.getElementById('agent-status-badge').style.background = '#fef3c7';
+                    document.getElementById('agent-status-badge').style.color = '#92400e';
+                    
+                    document.getElementById('agent-details').textContent = data.message || '';
+                }
+            } catch (error) {
+                console.error('Error checking agent status:', error);
+                document.getElementById('agent-status-badge').innerHTML = '❌ Error';
+                document.getElementById('agent-details').textContent = 'Could not check agent status';
+            }
+        }
+        
+        async function startAgent() {
+            const startBtn = document.getElementById('start-agent-btn');
+            startBtn.disabled = true;
+            startBtn.textContent = '⏳ Starting...';
+            
+            try {
+                const response = await fetch('/api/setup-agent', {
+                    method: 'POST',
+                    headers: {
+                        'X-API-Key': currentApiKey,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({})
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    await checkAgentStatus();
+                } else {
+                    alert(data.message || 'Failed to start agent');
+                    startBtn.disabled = false;
+                    startBtn.textContent = '▶️ Start Agent';
+                }
+            } catch (error) {
+                alert('Error starting agent: ' + error.message);
+                startBtn.disabled = false;
+                startBtn.textContent = '▶️ Start Agent';
+            }
+        }
+        
+        async function stopAgent() {
+            const stopBtn = document.getElementById('stop-agent-btn');
+            stopBtn.disabled = true;
+            stopBtn.textContent = '⏳ Stopping...';
+            
+            try {
+                const response = await fetch('/api/stop-agent', {
+                    method: 'POST',
+                    headers: {
+                        'X-API-Key': currentApiKey,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    await checkAgentStatus();
+                } else {
+                    alert(data.message || 'Failed to stop agent');
+                }
+                
+                stopBtn.disabled = false;
+                stopBtn.textContent = '⏸️ Stop Agent';
+            } catch (error) {
+                alert('Error stopping agent: ' + error.message);
+                stopBtn.disabled = false;
+                stopBtn.textContent = '⏸️ Stop Agent';
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // Helper Functions
+        // ═══════════════════════════════════════════════════════════════
+        
+        function showError(elementId, message) {
+            const el = document.getElementById(elementId);
+            el.className = 'error';
+            el.innerHTML = '❌ ' + message;
+            el.style.display = 'block';
+        }
+        
+        function showSuccess(elementId, message) {
+            const el = document.getElementById(elementId);
+            el.className = 'success';
+            el.innerHTML = '✅ ' + message;
+            el.style.display = 'block';
+        }
+    </script>
 </body>
 </html>
     """
