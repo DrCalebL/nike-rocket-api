@@ -124,6 +124,17 @@ async def initialize_portfolio_autodetect(request: Request):
         
         conn = await asyncpg.connect(DATABASE_URL)
         
+        # CRITICAL: Check if agent setup is complete FIRST
+        # This prevents initializing portfolio without Kraken credentials
+        credentials = await get_kraken_credentials(api_key)
+        
+        if not credentials:
+            await conn.close()
+            return {
+                "status": "error",
+                "message": "⚠️ Please set up your trading agent first! Go to /setup to enter your Kraken API credentials."
+            }
+        
         # CORRECTED: Use api_key column
         existing = await conn.fetchrow(
             "SELECT * FROM portfolio_users WHERE api_key = $1",
@@ -136,16 +147,6 @@ async def initialize_portfolio_autodetect(request: Request):
                 "status": "already_initialized",
                 "message": "Portfolio already initialized",
                 "initial_capital": float(existing['initial_capital'])
-            }
-        
-        # Get user's Kraken credentials (CORRECTED)
-        credentials = await get_kraken_credentials(api_key)
-        
-        if not credentials:
-            await conn.close()
-            return {
-                "status": "error",
-                "message": "No trading agent found. Please set up your agent first at /setup"
             }
         
         # Get current Kraken balance (AUTO-DETECT!)
