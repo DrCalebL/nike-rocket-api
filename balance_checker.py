@@ -2,6 +2,8 @@
 Automatic Balance Checker - Detects Deposits & Withdrawals
 ===========================================================
 
+FIXED VERSION with graceful table existence checking to prevent startup race conditions.
+
 This module automatically detects when users deposit or withdraw funds
 from their Kraken account by comparing actual balance to expected balance.
 
@@ -14,7 +16,7 @@ Usage:
     await checker.check_all_users()
 
 Author: Nike Rocket Team
-Updated: November 23, 2025 (with zero division protection)
+Updated: November 23, 2025 (with graceful table checking)
 """
 
 import asyncio
@@ -27,6 +29,21 @@ import logging
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+async def table_exists(conn: asyncpg.Connection, table_name: str) -> bool:
+    """Check if a table exists in the database"""
+    try:
+        result = await conn.fetchval("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = $1
+            )
+        """, table_name)
+        return result
+    except Exception as e:
+        logger.error(f"Error checking if table {table_name} exists: {e}")
+        return False
 
 
 class BalanceChecker:
@@ -42,28 +59,48 @@ class BalanceChecker:
         self.threshold = Decimal(str(threshold))
     
     async def check_all_users(self):
-        """Check balance for all users with active agents"""
+        """Check balance for all users with active agents - WITH TABLE EXISTENCE CHECKS"""
         async with self.db_pool.acquire() as conn:
-            # Get all users with agents
-            users = await conn.fetch("""
-                SELECT DISTINCT fa.follower_user_id as user_id, fa.api_key, fa.api_secret
-                FROM follower_agents fa
-                JOIN portfolio_users pu ON pu.user_id = fa.follower_user_id
-                WHERE fa.status = 'running'
-                AND pu.initial_capital > 0
-            """)
+            # CRITICAL FIX: Check if required tables exist before querying
+            tables_to_check = ['follower_agents', 'portfolio_users']
             
-            logger.info(f"Checking balance for {len(users)} users...")
-            
-            for user in users:
-                try:
-                    await self.check_user_balance(
-                        user['user_id'],
-                        user['api_key'],
-                        user['api_secret']
+            for table in tables_to_check:
+                if not await table_exists(conn, table):
+                    logger.warning(
+                        f"⚠️ Table '{table}' does not exist yet. "
+                        f"Skipping balance check. Will retry on next interval."
                     )
-                except Exception as e:
-                    logger.error(f"Error checking user {user['user_id']}: {e}")
+                    return  # Exit gracefully, will retry later
+            
+            # Tables exist - proceed with balance check
+            try:
+                # Get all users with agents
+                users = await conn.fetch("""
+                    SELECT DISTINCT fa.follower_user_id as user_id, fa.api_key, fa.api_secret
+                    FROM follower_agents fa
+                    JOIN portfolio_users pu ON pu.user_id = fa.follower_user_id
+                    WHERE fa.status = 'running'
+                    AND pu.initial_capital > 0
+                """)
+                
+                if len(users) == 0:
+                    logger.info("✓ No active users to check balance for")
+                    return
+                
+                logger.info(f"Checking balance for {len(users)} users...")
+                
+                for user in users:
+                    try:
+                        await self.check_user_balance(
+                            user['user_id'],
+                            user['api_key'],
+                            user['api_secret']
+                        )
+                    except Exception as e:
+                        logger.error(f"Error checking user {user['user_id']}: {e}")
+                        
+            except Exception as e:
+                logger.error(f"Error in check_all_users: {e}")
     
     async def check_user_balance(
         self, 
@@ -145,6 +182,11 @@ class BalanceChecker:
     async def calculate_expected_balance(self, user_id: str) -> Decimal:
         """Calculate expected balance based on last known balance + trades"""
         async with self.db_pool.acquire() as conn:
+            # Check if portfolio_users table exists
+            if not await table_exists(conn, 'portfolio_users'):
+                logger.warning("portfolio_users table doesn't exist")
+                return Decimal('0')
+            
             # Get last known balance and check time
             user_data = await conn.fetchrow("""
                 SELECT last_known_balance, last_balance_check, initial_capital
@@ -157,6 +199,10 @@ class BalanceChecker:
             
             last_balance = Decimal(str(user_data['last_known_balance'] or 0))
             last_check = user_data['last_balance_check']
+            
+            # Check if portfolio_trades table exists
+            if not await table_exists(conn, 'portfolio_trades'):
+                return last_balance
             
             # Get all trades since last check
             trades_pnl = await conn.fetchval("""
@@ -189,6 +235,11 @@ class BalanceChecker:
     ):
         """Record a detected transaction in database"""
         async with self.db_pool.acquire() as conn:
+            # Check if table exists
+            if not await table_exists(conn, 'portfolio_transactions'):
+                logger.warning("portfolio_transactions table doesn't exist, skipping record")
+                return
+            
             await conn.execute("""
                 INSERT INTO portfolio_transactions (
                     user_id,
@@ -213,6 +264,9 @@ class BalanceChecker:
     async def update_last_known_balance(self, user_id: str, balance: Decimal):
         """Update last known balance for user"""
         async with self.db_pool.acquire() as conn:
+            if not await table_exists(conn, 'portfolio_users'):
+                return
+            
             await conn.execute("""
                 UPDATE portfolio_users
                 SET last_known_balance = $1,
@@ -227,6 +281,9 @@ class BalanceChecker:
     ) -> List[Dict]:
         """Get transaction history for a user"""
         async with self.db_pool.acquire() as conn:
+            if not await table_exists(conn, 'portfolio_transactions'):
+                return []
+            
             transactions = await conn.fetch("""
                 SELECT 
                     transaction_type,
@@ -255,6 +312,10 @@ class BalanceChecker:
         4. Caps ROI at reasonable values (±10,000%)
         """
         async with self.db_pool.acquire() as conn:
+            # Check if tables exist
+            if not await table_exists(conn, 'portfolio_users'):
+                return {}
+            
             summary = await conn.fetchrow("""
                 SELECT 
                     pu.initial_capital,
@@ -347,25 +408,35 @@ class BalanceChecker:
 
 
 # ============================================================================
-# SCHEDULER - Run balance checks periodically
+# SCHEDULER - Run balance checks periodically (WITH STARTUP DELAY)
 # ============================================================================
 
 class BalanceCheckerScheduler:
     """Run balance checks on a schedule"""
     
-    def __init__(self, db_pool: asyncpg.Pool, interval_minutes: int = 60):
+    def __init__(self, db_pool: asyncpg.Pool, interval_minutes: int = 60, startup_delay_seconds: int = 30):
         """
         Args:
             db_pool: PostgreSQL connection pool
             interval_minutes: How often to check (default 60 minutes)
+            startup_delay_seconds: Wait time before first check (default 30s)
         """
         self.checker = BalanceChecker(db_pool)
         self.interval_minutes = interval_minutes
+        self.startup_delay_seconds = startup_delay_seconds
         self.running = False
     
     async def start(self):
-        """Start the scheduler"""
+        """Start the scheduler with startup delay"""
         self.running = True
+        
+        # CRITICAL FIX: Wait for database initialization to complete
+        logger.info(
+            f"⏳ Balance checker starting in {self.startup_delay_seconds} seconds "
+            f"(allowing database initialization to complete)..."
+        )
+        await asyncio.sleep(self.startup_delay_seconds)
+        
         logger.info(
             f"✅ Balance checker started "
             f"(checks every {self.interval_minutes} minutes)"
@@ -419,8 +490,12 @@ async def example_usage():
     for tx in history:
         print(f"{tx['created_at']}: {tx['transaction_type']} ${tx['amount']}")
     
-    # Option 4: Run scheduler (checks every hour)
-    scheduler = BalanceCheckerScheduler(db_pool, interval_minutes=60)
+    # Option 4: Run scheduler (checks every hour with 30s startup delay)
+    scheduler = BalanceCheckerScheduler(
+        db_pool, 
+        interval_minutes=60,
+        startup_delay_seconds=30  # NEW: Wait 30s before first check
+    )
     await scheduler.start()  # This runs forever
 
 
