@@ -1286,7 +1286,7 @@ async def portfolio_dashboard(request: Request):
         
         async function checkPortfolioStatus() {{
             try {{
-                const response = await fetch(`/api/portfolio/stats?period=30d`, {{
+                const response = await fetch(`/api/portfolio/balance-summary?key=${currentApiKey}`, {{
                     headers: {{'X-API-Key': currentApiKey}}
                 }});
                 
@@ -1305,24 +1305,19 @@ async def portfolio_dashboard(request: Request):
                 
                 const data = await response.json();
                 
-                if (data.status === 'no_data') {{
-                    // Portfolio initialized but no trades yet
+                if (data.status === 'success' || data.total_profit !== undefined) {{
+                    // Portfolio initialized - show dashboard with data
                     showDashboard(data);
                     // Load balance summary and transactions
                     await loadBalanceSummary();
                     await loadTransactionHistory();
-                    // Check agent status (NEW!)
+                    // Check agent status
                     await checkAgentStatus();
-                }} else if (data.total_profit !== undefined) {{
-                    // Portfolio has data
-                    showDashboard(data);
-                    // Load balance summary and transactions
-                    await loadBalanceSummary();
-                    await loadTransactionHistory();
-                    // Check agent status (NEW!)
-                    await checkAgentStatus();
+                }} else if (data.status === 'not_initialized') {{
+                    // Portfolio not yet initialized - show setup wizard
+                    showSetupWizard();
                 }} else {{
-                    // Need to initialize
+                    // Unknown status - show setup wizard
                     showSetupWizard();
                 }}
                 
