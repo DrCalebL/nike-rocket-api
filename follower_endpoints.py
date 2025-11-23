@@ -682,8 +682,8 @@ async def get_agent_status(
     # Check if credentials were just set (within last 5 minutes)
     now = datetime.utcnow()
     
-    # Use updated_at if available (when credentials were last changed), otherwise created_at
-    setup_time = user.updated_at if user.updated_at else user.created_at
+    # Use created_at for setup time (User model doesn't have updated_at)
+    setup_time = user.created_at
     
     if setup_time:
         time_since_setup = (now - setup_time).total_seconds() / 60  # minutes
