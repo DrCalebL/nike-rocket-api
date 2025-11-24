@@ -385,6 +385,54 @@ class HostedTradingLoop:
             
             self.logger.info(f"   ✅ SL @ ${sl_price}: {sl_order['id']}")
             
+            # ==================== RECORD OPEN POSITION ====================
+            # Get entry fill price (may differ from signal due to slippage)
+            entry_fill_price = entry_price  # Default to signal price
+            try:
+                # Try to get actual fill price from order
+                filled_order = exchange.fetch_order(entry_order['id'], kraken_symbol)
+                if filled_order.get('average'):
+                    entry_fill_price = float(filled_order['average'])
+                    self.logger.info(f"   📊 Entry fill price: ${entry_fill_price:.2f}")
+            except Exception as e:
+                self.logger.warning(f"   ⚠️ Could not fetch fill price, using signal price: {e}")
+            
+            # Save to open_positions table
+            try:
+                async with self.db_pool.acquire() as conn:
+                    # Get signal DB ID from signal_id string
+                    signal_db_id = await conn.fetchval(
+                        "SELECT id FROM signals WHERE signal_id = $1",
+                        signal.get('signal_id')
+                    )
+                    
+                    await conn.execute("""
+                        INSERT INTO open_positions 
+                        (user_id, signal_id, entry_order_id, tp_order_id, sl_order_id,
+                         symbol, kraken_symbol, side, quantity, leverage,
+                         entry_fill_price, target_tp, target_sl, opened_at, status)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                    """, 
+                        user['id'],
+                        signal_db_id,
+                        entry_order['id'],
+                        tp_order['id'],
+                        sl_order['id'],
+                        symbol,  # BTC/USDT format
+                        kraken_symbol,  # PF_XBTUSD format
+                        action.upper(),  # BUY or SELL
+                        quantity,
+                        leverage,
+                        entry_fill_price,
+                        tp_price,
+                        sl_price,
+                        datetime.now(),
+                        'open'
+                    )
+                    self.logger.info(f"   📝 Open position recorded in database")
+            except Exception as e:
+                self.logger.error(f"   ⚠️ Failed to record position (trade still placed): {e}")
+            
             self.logger.info(f"   🎉 {user_short}: Trade executed successfully!")
             
             return True
