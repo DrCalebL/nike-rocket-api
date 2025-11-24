@@ -29,8 +29,8 @@ logger = logging.getLogger('HOSTED_TRADING')
 
 # ==================== CONFIGURATION ====================
 
-# Risk settings (matches your algo)
-RISK_PERCENTAGE = 0.02  # 2% risk per trade
+# Risk settings (default if not specified in signal)
+DEFAULT_RISK_PERCENTAGE = 0.02  # 2% default, but signal can override
 
 # Polling settings
 POLL_INTERVAL_SECONDS = 10
@@ -195,6 +195,7 @@ class HostedTradingLoop:
                     s.stop_loss,
                     s.take_profit,
                     s.leverage,
+                    COALESCE(s.risk_pct, 0.02) as risk_pct,
                     s.created_at
                 FROM signal_deliveries sd
                 JOIN signals s ON sd.signal_id = s.id
@@ -322,8 +323,12 @@ class HostedTradingLoop:
             take_profit = float(signal['take_profit'])
             leverage = float(signal.get('leverage', 5.0))
             
-            # ==================== POSITION SIZING (2% RISK) ====================
-            risk_amount = equity * RISK_PERCENTAGE
+            # Get risk percentage from signal (2% aggressive, 3% conservative)
+            # Falls back to default if not specified
+            risk_pct = float(signal.get('risk_pct', DEFAULT_RISK_PERCENTAGE))
+            
+            # ==================== POSITION SIZING ====================
+            risk_amount = equity * risk_pct
             risk_per_unit = abs(entry_price - stop_loss)
             
             if risk_per_unit <= 0:
@@ -337,7 +342,7 @@ class HostedTradingLoop:
             quantity = float(exchange.amount_to_precision(kraken_symbol, position_size))
             
             self.logger.info(f"   💰 Equity: ${equity:,.2f}")
-            self.logger.info(f"   🎯 Risk: ${risk_amount:,.2f} (2%)")
+            self.logger.info(f"   🎯 Risk: ${risk_amount:,.2f} ({risk_pct*100:.0f}%)")
             self.logger.info(f"   📐 Position: {quantity} contracts")
             
             # ==================== EXECUTE 3-ORDER BRACKET ====================
@@ -447,7 +452,7 @@ class HostedTradingLoop:
         self.logger.info("🚀 HOSTED TRADING LOOP STARTED")
         self.logger.info("=" * 60)
         self.logger.info(f"🔄 Poll interval: {POLL_INTERVAL_SECONDS} seconds")
-        self.logger.info(f"💰 Risk per trade: {RISK_PERCENTAGE*100}%")
+        self.logger.info(f"💰 Risk per trade: From signal (2-3%), default {DEFAULT_RISK_PERCENTAGE*100:.0f}%")
         self.logger.info("=" * 60)
         
         poll_count = 0
