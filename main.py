@@ -2123,37 +2123,49 @@ ROI: ${{roi}}`;
             startBtn.textContent = '⏳ Starting...';
             
             try {{
-                const response = await fetch('/api/setup-agent', {{
+                const response = await fetch('/api/agent/activate', {{
                     method: 'POST',
                     headers: {{
                         'X-API-Key': currentApiKey,
                         'Content-Type': 'application/json'
-                    }},
-                    body: JSON.stringify({{
-                        action: 'start'
-                    }})
+                    }}
                 }});
                 
                 const data = await response.json();
                 
                 const messageEl = document.getElementById('agent-message');
                 
-                if (data.status === 'success' || data.status === 'running') {{
+                if (data.status === 'success') {{
                     messageEl.style.display = 'block';
                     messageEl.style.background = '#d1fae5';
                     messageEl.style.color = '#065f46';
-                    messageEl.textContent = '✅ Agent started successfully!';
+                    messageEl.textContent = '✅ Agent activated successfully!';
                     
                     // Refresh status after 2 seconds
                     setTimeout(() => {{
                         checkAgentStatus();
                         messageEl.style.display = 'none';
                     }}, 2000);
+                }} else if (data.status === 'error') {{
+                    messageEl.style.display = 'block';
+                    messageEl.style.background = '#fee2e2';
+                    messageEl.style.color = '#991b1b';
+                    messageEl.textContent = '❌ ' + (data.message || 'Failed to activate agent');
+                    
+                    // If needs setup, redirect
+                    if (data.redirect) {{
+                        setTimeout(() => {{
+                            window.location.href = data.redirect;
+                        }}, 2000);
+                    }}
+                    
+                    startBtn.disabled = false;
+                    startBtn.textContent = '▶️ Start Agent';
                 }} else {{
                     messageEl.style.display = 'block';
                     messageEl.style.background = '#fee2e2';
                     messageEl.style.color = '#991b1b';
-                    messageEl.textContent = '❌ ' + (data.message || 'Failed to start agent');
+                    messageEl.textContent = '❌ Failed to activate agent';
                     
                     startBtn.disabled = false;
                     startBtn.textContent = '▶️ Start Agent';
@@ -2177,7 +2189,7 @@ ROI: ${{roi}}`;
             stopBtn.textContent = '⏳ Stopping...';
             
             try {{
-                const response = await fetch('/api/stop-agent', {{
+                const response = await fetch('/api/agent/deactivate', {{
                     method: 'POST',
                     headers: {{
                         'X-API-Key': currentApiKey,
@@ -2189,11 +2201,11 @@ ROI: ${{roi}}`;
                 
                 const messageEl = document.getElementById('agent-message');
                 
-                if (data.status === 'success' || data.status === 'stopped') {{
+                if (data.status === 'success') {{
                     messageEl.style.display = 'block';
                     messageEl.style.background = '#d1fae5';
                     messageEl.style.color = '#065f46';
-                    messageEl.textContent = '✅ Agent stopped successfully!';
+                    messageEl.textContent = '✅ Agent deactivated successfully!';
                     
                     // Refresh status after 2 seconds
                     setTimeout(() => {{
@@ -2204,7 +2216,7 @@ ROI: ${{roi}}`;
                     messageEl.style.display = 'block';
                     messageEl.style.background = '#fee2e2';
                     messageEl.style.color = '#991b1b';
-                    messageEl.textContent = '❌ ' + (data.message || 'Failed to stop agent');
+                    messageEl.textContent = '❌ ' + (data.message || 'Failed to deactivate agent');
                     
                     stopBtn.disabled = false;
                     stopBtn.textContent = '⏸️ Stop Agent';
