@@ -1849,27 +1849,32 @@ async def portfolio_dashboard(request: Request):
                 const response = await fetch(`/api/portfolio/equity-curve?key=${{currentApiKey}}`);
                 const data = await response.json();
                 
-                if (data.status === 'success' || data.status === 'no_trades') {{
-                    // Update summary stats
-                    document.getElementById('eq-initial').textContent = `$${{data.initial_capital.toLocaleString()}}`;
-                    document.getElementById('eq-current').textContent = `$${{data.current_equity.toLocaleString()}}`;
-                    document.getElementById('eq-peak').textContent = `$${{data.max_equity.toLocaleString()}}`;
-                    document.getElementById('eq-trough').textContent = `$${{data.min_equity.toLocaleString()}}`;
-                    document.getElementById('eq-maxdd').textContent = `${{data.max_drawdown.toFixed(1)}}%`;
-                    
-                    // Color current equity based on profit/loss
-                    const currentEl = document.getElementById('eq-current');
-                    if (data.current_equity >= data.initial_capital) {{
-                        currentEl.style.color = '#10b981';
-                    }} else {{
-                        currentEl.style.color = '#ef4444';
-                    }}
-                    
-                    // Update stats text
-                    document.getElementById('equity-stats').textContent = 
-                        `${{data.total_trades}} trades | Total PnL: $${{data.total_pnl >= 0 ? '+' : ''}}${{data.total_pnl.toLocaleString()}}`;
-                    
-                    // Prepare chart data
+                // Update summary stats (these should always be available)
+                const initialCap = data.initial_capital || 0;
+                const currentEq = data.current_equity || initialCap;
+                const maxEq = data.max_equity || initialCap;
+                const minEq = data.min_equity || initialCap;
+                const maxDD = data.max_drawdown || 0;
+                const totalTrades = data.total_trades || 0;
+                const totalPnl = data.total_pnl || 0;
+                
+                document.getElementById('eq-initial').textContent = `$${{initialCap.toLocaleString()}}`;
+                document.getElementById('eq-current').textContent = `$${{currentEq.toLocaleString()}}`;
+                document.getElementById('eq-peak').textContent = `$${{maxEq.toLocaleString()}}`;
+                document.getElementById('eq-trough').textContent = `$${{minEq.toLocaleString()}}`;
+                document.getElementById('eq-maxdd').textContent = `${{maxDD.toFixed(1)}}%`;
+                
+                // Color current equity based on profit/loss
+                const currentEl = document.getElementById('eq-current');
+                currentEl.style.color = currentEq >= initialCap ? '#10b981' : '#ef4444';
+                
+                // Update stats text
+                document.getElementById('equity-stats').textContent = 
+                    `${{totalTrades}} trades | Total PnL: $${{totalPnl >= 0 ? '+' : ''}}${{totalPnl.toLocaleString()}}`;
+                
+                // Check if we have actual trading data to chart
+                if (data.status === 'success' && data.equity_curve && data.equity_curve.length > 1) {{
+                    // We have trades - render the chart
                     const labels = data.equity_curve.map(point => {{
                         const date = new Date(point.date);
                         return date.toLocaleDateString('en-US', {{ month: 'short', day: 'numeric' }});
@@ -1991,18 +1996,33 @@ async def portfolio_dashboard(request: Request):
                             }}
                         }}
                     }});
-                }} else {{
+                }} else if (data.status === 'no_trades' || data.equity_curve?.length <= 1) {{
+                    // No trades yet - show friendly message with flat line hint
                     document.getElementById('equity-chart-container').innerHTML = `
-                        <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #9ca3af;">
-                            No trading data available yet
+                        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #6b7280; text-align: center; padding: 20px;">
+                            <div style="font-size: 48px; margin-bottom: 15px;">📊</div>
+                            <div style="font-size: 18px; font-weight: 600; margin-bottom: 8px;">No Trades Yet</div>
+                            <div style="font-size: 14px; color: #9ca3af;">Your equity curve will appear here once trades are executed</div>
+                        </div>
+                    `;
+                }} else {{
+                    // Unknown status - show waiting message
+                    document.getElementById('equity-chart-container').innerHTML = `
+                        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #6b7280; text-align: center; padding: 20px;">
+                            <div style="font-size: 48px; margin-bottom: 15px;">⏳</div>
+                            <div style="font-size: 18px; font-weight: 600; margin-bottom: 8px;">Waiting for Data</div>
+                            <div style="font-size: 14px; color: #9ca3af;">Chart will load once trading begins</div>
                         </div>
                     `;
                 }}
             }} catch (error) {{
                 console.error('Error loading equity curve:', error);
+                // Show friendly message instead of scary red error
                 document.getElementById('equity-chart-container').innerHTML = `
-                    <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #ef4444;">
-                        Error loading equity curve
+                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #6b7280; text-align: center; padding: 20px;">
+                        <div style="font-size: 48px; margin-bottom: 15px;">📊</div>
+                        <div style="font-size: 18px; font-weight: 600; margin-bottom: 8px;">No Trading Data</div>
+                        <div style="font-size: 14px; color: #9ca3af;">Start trading to see your equity curve</div>
                     </div>
                 `;
             }}
