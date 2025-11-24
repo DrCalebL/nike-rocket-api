@@ -19,7 +19,7 @@ Endpoints:
 - POST /api/payments/webhook - Coinbase Commerce webhook
 
 Author: Nike Rocket Team
-Updated: November 21, 2025
+Updated: November 24, 2025
 """
 
 from fastapi import APIRouter, HTTPException, Header, Depends, BackgroundTasks
@@ -69,6 +69,7 @@ class SignalBroadcast(BaseModel):
     stop_loss: float
     take_profit: float
     leverage: float
+    risk_pct: Optional[float] = 0.02  # Risk % (0.02=2% aggressive, 0.03=3% conservative)
     timeframe: Optional[str] = None
     trend_strength: Optional[float] = None
     volatility: Optional[float] = None
@@ -188,6 +189,7 @@ async def broadcast_signal(
             stop_loss=signal.stop_loss,
             take_profit=signal.take_profit,
             leverage=signal.leverage,
+            risk_pct=signal.risk_pct,
             timeframe=signal.timeframe,
             trend_strength=signal.trend_strength,
             volatility=signal.volatility,
