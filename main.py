@@ -1707,9 +1707,18 @@ async def portfolio_dashboard(request: Request):
         let selectorMode = 'download'; // 'download' or 'twitter'
         
         function shareToTwitter() {{
-            const profit = document.getElementById('total-profit').textContent;
-            const roi = document.getElementById('roi').textContent;
-            const period = document.getElementById('period-selector').value;
+            // Get profit from portfolio overview
+            const profitElement = document.getElementById('total-profit-overview');
+            const roiElement = document.getElementById('roi-total');
+            
+            if (!profitElement || !roiElement) {{
+                alert('Portfolio data not loaded yet. Please wait a moment and try again.');
+                return;
+            }}
+            
+            const profit = profitElement.textContent;
+            const roi = roiElement.textContent;
+            const period = '30d'; // Default to 30 days for portfolio
             
             const periodLabels = {{
                 '7d': '7 days',
@@ -1891,9 +1900,19 @@ ROI: ${{roi}}`;
         }}
         
         function downloadPerformanceCard() {{
-            const profit = document.getElementById('total-profit').textContent;
-            const roi = document.getElementById('roi').textContent;
-            const period = document.getElementById('period-selector').value;
+            // Get profit from portfolio overview
+            const profitElement = document.getElementById('total-profit-overview');
+            const roiElement = document.getElementById('roi-total');
+            
+            if (!profitElement || !roiElement) {{
+                alert('Portfolio data not loaded yet. Please wait a moment and try again.');
+                toggleBackgroundSelector();
+                return;
+            }}
+            
+            const profit = profitElement.textContent;
+            const roi = roiElement.textContent;
+            const period = '30d'; // Default to 30 days for portfolio
             
             const periodLabels = {{
                 '7d': '7 days',
@@ -2030,49 +2049,66 @@ ROI: ${{roi}}`;
         
         async function checkAgentStatus() {{
             try {{
-                const response = await fetch('/api/agent-status', {{
+                const response = await fetch(`/api/agent-status?key=${{currentApiKey}}`, {{
                     headers: {{'X-API-Key': currentApiKey}}
                 }});
                 
                 const data = await response.json();
                 
-                if (data.status === 'running') {{
-                    // Agent is running
-                    document.getElementById('agent-status-badge').innerHTML = '🟢 Running';
+                // Handle NEW status values from updated API
+                if (data.status === 'active' || data.status === 'running') {{
+                    // Agent is active/running
+                    document.getElementById('agent-status-badge').innerHTML = '🟢 Active';
                     document.getElementById('agent-status-badge').style.background = '#d1fae5';
                     document.getElementById('agent-status-badge').style.color = '#065f46';
                     
                     document.getElementById('start-agent-btn').style.display = 'none';
                     document.getElementById('stop-agent-btn').style.display = 'block';
                     
-                    // Show agent details
-                    if (data.exchange && data.pair) {{
-                        document.getElementById('agent-details').textContent = 
-                            `Trading ${{data.pair}} on ${{data.exchange}}`;
-                    }}
-                }} else if (data.status === 'stopped' || data.status === 'not_found') {{
-                    // Agent is stopped or not set up
-                    document.getElementById('agent-status-badge').innerHTML = '🔴 Stopped';
-                    document.getElementById('agent-status-badge').style.background = '#fee2e2';
-                    document.getElementById('agent-status-badge').style.color = '#991b1b';
+                    document.getElementById('agent-details').textContent = 'Agent configured and ready to start';
+                    
+                }} else if (data.status === 'ready') {{
+                    // Agent configured but not running
+                    document.getElementById('agent-status-badge').innerHTML = '🟡 Ready';
+                    document.getElementById('agent-status-badge').style.background = '#fef3c7';
+                    document.getElementById('agent-status-badge').style.color = '#92400e';
                     
                     document.getElementById('start-agent-btn').style.display = 'block';
                     document.getElementById('stop-agent-btn').style.display = 'none';
                     
-                    if (data.status === 'not_found') {{
-                        document.getElementById('agent-details').innerHTML = 
-                            '<a href="/setup" style="color: #667eea;">Set up your agent first →</a>';
-                    }} else {{
-                        document.getElementById('agent-details').textContent = 
-                            data.message || 'Agent is not running';
-                    }}
+                    document.getElementById('agent-details').textContent = 'Agent configured and ready to start';
+                    
+                }} else if (data.status === 'configuring') {{
+                    // Agent being configured
+                    document.getElementById('agent-status-badge').innerHTML = '⏳ Configuring';
+                    document.getElementById('agent-status-badge').style.background = '#dbeafe';
+                    document.getElementById('agent-status-badge').style.color = '#1e40af';
+                    
+                    document.getElementById('start-agent-btn').style.display = 'none';
+                    document.getElementById('stop-agent-btn').style.display = 'none';
+                    
+                    document.getElementById('agent-details').textContent = 
+                        `Setup in progress... Ready in ${{data.ready_in_minutes || 'a few'}} minutes`;
+                        
+                }} else if (data.status === 'stopped' || data.status === 'not_configured' || data.status === 'not_found') {{
+                    // Agent not configured or stopped
+                    document.getElementById('agent-status-badge').innerHTML = '🔴 Not Configured';
+                    document.getElementById('agent-status-badge').style.background = '#fee2e2';
+                    document.getElementById('agent-status-badge').style.color = '#991b1b';
+                    
+                    document.getElementById('start-agent-btn').style.display = 'none';
+                    document.getElementById('stop-agent-btn').style.display = 'none';
+                    
+                    document.getElementById('agent-details').innerHTML = 
+                        '<a href="/setup?key=' + currentApiKey + '" style="color: #667eea;">Set up your agent first →</a>';
+                        
                 }} else {{
                     // Unknown status
                     document.getElementById('agent-status-badge').innerHTML = '⚠️ Unknown';
                     document.getElementById('agent-status-badge').style.background = '#fef3c7';
                     document.getElementById('agent-status-badge').style.color = '#92400e';
                     
-                    document.getElementById('agent-details').textContent = data.message || '';
+                    document.getElementById('agent-details').textContent = data.message || 'Status unclear';
                 }}
             }} catch (error) {{
                 console.error('Error checking agent status:', error);
