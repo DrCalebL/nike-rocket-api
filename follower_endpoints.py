@@ -714,23 +714,26 @@ async def get_agent_status(
             "setup_url": "/setup"
         }
     
-    # Check if agent is actively running (has recent activity)
-    if user.agent_active and user.agent_last_poll:
-        poll_age = (now - user.agent_last_poll).total_seconds() / 60
+    # Check if agent is active (user has activated it)
+    if user.agent_active:
+        # Check if agent has recent polling activity (optional extra info)
+        has_recent_poll = False
+        if user.agent_last_poll:
+            poll_age = (now - user.agent_last_poll).total_seconds() / 60
+            has_recent_poll = poll_age < 10
         
-        if poll_age < 10:  # Active within last 10 minutes
-            return {
-                "status": "active",
-                "message": "Agent is running and following signals",
-                "credentials_set": True,
-                "agent_configured": True,
-                "agent_active": True,
-                "agent_started_at": user.agent_started_at.isoformat() if user.agent_started_at else None,
-                "agent_last_poll": user.agent_last_poll.isoformat() if user.agent_last_poll else None,
-                "last_heartbeat": user.agent_last_poll.isoformat() if user.agent_last_poll else None,
-                "access_granted": user.access_granted,
-                "email": user.email
-            }
+        return {
+            "status": "active",
+            "message": "Agent is active and following signals",
+            "credentials_set": True,
+            "agent_configured": True,
+            "agent_active": True,
+            "agent_started_at": user.agent_started_at.isoformat() if user.agent_started_at else None,
+            "agent_last_poll": user.agent_last_poll.isoformat() if user.agent_last_poll else None,
+            "has_recent_heartbeat": has_recent_poll,
+            "access_granted": user.access_granted,
+            "email": user.email
+        }
     
     # Credentials set but agent not currently active
     return {
