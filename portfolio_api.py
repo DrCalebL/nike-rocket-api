@@ -632,7 +632,9 @@ async def get_equity_curve(request: Request):
                 "current_equity": initial_capital,
                 "max_equity": initial_capital,
                 "min_equity": initial_capital,
-                "max_drawdown": 0
+                "max_drawdown": 0,
+                "total_trades": 0,
+                "total_pnl": 0
             }
         
         # Build equity curve from trading PnL only
