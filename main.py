@@ -2055,6 +2055,28 @@ ROI: ${{roi}}`;
                 
                 const data = await response.json();
                 
+                // ========== UPDATE TOP BANNER ==========
+                const topBanner = document.getElementById('agent-status-display');
+                if (topBanner) {{
+                    if (data.status === 'active' || data.status === 'running') {{
+                        topBanner.innerHTML = '🟢 <strong>Agent Active</strong> - Following signals';
+                        topBanner.className = 'agent-status status-active';
+                    }} else if (data.status === 'ready') {{
+                        topBanner.innerHTML = '🟡 <strong>Ready</strong> - Agent configured';
+                        topBanner.className = 'agent-status status-ready';
+                    }} else if (data.status === 'configuring') {{
+                        topBanner.innerHTML = `⏳ <strong>Configuring</strong> - Ready in ${{data.ready_in_minutes || 'a few'}} min`;
+                        topBanner.className = 'agent-status status-configuring';
+                    }} else if (data.status === 'not_configured' || data.status === 'not_found') {{
+                        topBanner.innerHTML = '🔴 <strong>Not Configured</strong> - <a href="/setup?key=' + currentApiKey + '" style="color: #dc2626;">Complete setup</a>';
+                        topBanner.className = 'agent-status status-error';
+                    }} else {{
+                        topBanner.innerHTML = '⚠️ <strong>Unknown</strong> - ' + (data.message || 'Status unclear');
+                        topBanner.className = 'agent-status status-unknown';
+                    }}
+                }}
+                
+                // ========== UPDATE SECTION BADGE ==========
                 // Handle NEW status values from updated API
                 if (data.status === 'active' || data.status === 'running') {{
                     // Agent is active/running
@@ -2065,7 +2087,7 @@ ROI: ${{roi}}`;
                     document.getElementById('start-agent-btn').style.display = 'none';
                     document.getElementById('stop-agent-btn').style.display = 'block';
                     
-                    document.getElementById('agent-details').textContent = 'Agent configured and ready to start';
+                    document.getElementById('agent-details').textContent = 'Agent is active and following signals';
                     
                 }} else if (data.status === 'ready') {{
                     // Agent configured but not running
