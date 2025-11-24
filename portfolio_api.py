@@ -689,3 +689,20 @@ async def get_equity_curve(request: Request):
             "total_trades": len(trades),
             "total_pnl": round(cumulative_pnl, 2)
         }
+        
+    except Exception as e:
+        print(f"Error in equity curve: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "message": str(e),
+            "equity_curve": [],
+            "initial_capital": 0,
+            "current_equity": 0,
+            "max_equity": 0,
+            "min_equity": 0,
+            "max_drawdown": 0,
+            "total_trades": 0,
+            "total_pnl": 0
+        }
