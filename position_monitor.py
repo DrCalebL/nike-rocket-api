@@ -112,18 +112,46 @@ class PositionMonitor:
             return [dict(row) for row in rows]
     
     async def check_order_status(self, exchange: ccxt.krakenfutures, order_id: str, symbol: str) -> Dict[str, Any]:
-        """Check if an order has filled"""
+        """Check if an order has filled - NOT USED for Kraken Futures"""
+        # Kraken Futures doesn't support fetchOrder, use check_position_closed instead
+        return {'status': 'unknown', 'error': 'Use check_position_closed instead'}
+    
+    async def check_position_closed(self, exchange: ccxt.krakenfutures, kraken_symbol: str, side: str, quantity: float) -> Dict[str, Any]:
+        """
+        Check if position is still open on Kraken.
+        
+        Returns:
+            - {'closed': False} if position still exists
+            - {'closed': True, 'exit_price': price} if position closed
+        """
         try:
-            order = exchange.fetch_order(order_id, symbol)
-            return {
-                'status': order.get('status'),  # 'open', 'closed', 'canceled'
-                'filled': order.get('filled', 0),
-                'average': order.get('average'),  # Fill price
-                'timestamp': order.get('timestamp')
-            }
+            positions = exchange.fetch_positions([kraken_symbol])
+            
+            for pos in positions:
+                if pos['symbol'] == kraken_symbol:
+                    contracts = abs(float(pos.get('contracts', 0) or 0))
+                    
+                    if contracts > 0:
+                        # Position still open
+                        return {'closed': False, 'current_size': contracts}
+            
+            # No position found = closed
+            # Try to get exit price from recent trades
+            exit_price = None
+            try:
+                trades = exchange.fetch_my_trades(kraken_symbol, limit=10)
+                if trades:
+                    # Get most recent trade (the exit)
+                    latest = trades[-1]
+                    exit_price = float(latest.get('price', 0))
+            except Exception as e:
+                self.logger.warning(f"Could not fetch trades for exit price: {e}")
+            
+            return {'closed': True, 'exit_price': exit_price}
+            
         except Exception as e:
-            self.logger.error(f"Error checking order {order_id}: {e}")
-            return {'status': 'unknown', 'error': str(e)}
+            self.logger.error(f"Error checking position: {e}")
+            return {'closed': False, 'error': str(e)}
     
     async def record_trade(self, position: dict, exit_price: float, exit_type: str, closed_at: datetime):
         """Record completed trade in database"""
@@ -211,7 +239,7 @@ class PositionMonitor:
             return False
     
     async def check_position(self, position: dict):
-        """Check a single position for TP/SL fill"""
+        """Check a single position - is it still open on Kraken?"""
         user_short = position['user_api_key'][:15] + "..."
         
         try:
@@ -232,58 +260,70 @@ class PositionMonitor:
             
             kraken_symbol = position['kraken_symbol']
             
-            # Check TP order
-            tp_status = await self.check_order_status(exchange, position['tp_order_id'], kraken_symbol)
+            # Check if position is still open on Kraken
+            result = await self.check_position_closed(
+                exchange, 
+                kraken_symbol, 
+                position['side'], 
+                position['quantity']
+            )
             
-            if tp_status['status'] == 'closed':
-                # TP filled!
-                exit_price = tp_status.get('average', position['target_tp'])
-                closed_at = datetime.fromtimestamp(tp_status['timestamp'] / 1000) if tp_status.get('timestamp') else datetime.now()
-                
-                self.logger.info(f"🎯 {user_short}: TP HIT on {position['symbol']}")
-                await self.record_trade(position, exit_price, 'TP', closed_at)
-                
-                # Cancel SL order (no longer needed)
-                try:
-                    exchange.cancel_order(position['sl_order_id'], kraken_symbol)
-                    self.logger.info(f"   ✅ Cancelled SL order")
-                except Exception as e:
-                    self.logger.warning(f"   ⚠️ Could not cancel SL: {e}")
-                
+            if not result.get('closed'):
+                # Position still open, nothing to do
                 return
             
-            # Check SL order
-            sl_status = await self.check_order_status(exchange, position['sl_order_id'], kraken_symbol)
+            # Position closed! Determine if it was TP or SL
+            exit_price = result.get('exit_price')
             
-            if sl_status['status'] == 'closed':
-                # SL filled!
-                exit_price = sl_status.get('average', position['target_sl'])
-                closed_at = datetime.fromtimestamp(sl_status['timestamp'] / 1000) if sl_status.get('timestamp') else datetime.now()
+            if exit_price is None:
+                # Couldn't get exit price, estimate from targets
+                entry = position['entry_fill_price']
+                tp = position['target_tp']
+                sl = position['target_sl']
                 
-                self.logger.info(f"🛑 {user_short}: SL HIT on {position['symbol']}")
-                await self.record_trade(position, exit_price, 'SL', closed_at)
+                # Check which target was closer to entry (rough estimate)
+                # In practice, we'd need the actual fill
+                self.logger.warning(f"⚠️ {user_short}: Could not get exit price, will estimate")
                 
-                # Cancel TP order (no longer needed)
-                try:
-                    exchange.cancel_order(position['tp_order_id'], kraken_symbol)
-                    self.logger.info(f"   ✅ Cancelled TP order")
-                except Exception as e:
-                    self.logger.warning(f"   ⚠️ Could not cancel TP: {e}")
-                
-                return
-            
-            # Check if both orders are canceled (manual close or liquidation)
-            if tp_status['status'] == 'canceled' and sl_status['status'] == 'canceled':
-                self.logger.warning(f"⚠️ {user_short}: Both TP/SL canceled for {position['symbol']} - marking as error")
+                # For now, mark as error - we need manual review
                 async with self.db_pool.acquire() as conn:
                     await conn.execute(
-                        "UPDATE open_positions SET status = 'error' WHERE id = $1",
+                        "UPDATE open_positions SET status = 'needs_review' WHERE id = $1",
                         position['id']
                     )
                 return
             
-            # Position still open, no action needed
+            # Determine if TP or SL hit based on exit price
+            entry = position['entry_fill_price']
+            tp = position['target_tp']
+            sl = position['target_sl']
+            side = position['side']
             
+            # Calculate distance to TP and SL
+            dist_to_tp = abs(exit_price - tp)
+            dist_to_sl = abs(exit_price - sl)
+            
+            if dist_to_tp < dist_to_sl:
+                exit_type = 'TP'
+                self.logger.info(f"🎯 {user_short}: TP HIT on {position['symbol']} @ ${exit_price:.2f}")
+            else:
+                exit_type = 'SL'
+                self.logger.info(f"🛑 {user_short}: SL HIT on {position['symbol']} @ ${exit_price:.2f}")
+            
+            # Record the trade with actual P&L
+            await self.record_trade(position, exit_price, exit_type, datetime.now())
+            
+            # Cancel remaining order (TP or SL that didn't fill)
+            try:
+                if exit_type == 'TP':
+                    exchange.cancel_order(position['sl_order_id'], kraken_symbol)
+                else:
+                    exchange.cancel_order(position['tp_order_id'], kraken_symbol)
+                self.logger.info(f"   ✅ Cancelled remaining order")
+            except Exception as e:
+                # Order might already be cancelled
+                self.logger.debug(f"   Could not cancel order: {e}")
+                
         except Exception as e:
             self.logger.error(f"❌ Error checking position {position['id']}: {e}")
     
