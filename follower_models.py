@@ -6,9 +6,10 @@ Updated models that support:
 - Encrypted storage of Kraken API credentials
 - Agent status tracking (active/stopped)
 - Multi-agent support
+- Risk percentage per signal (2% or 3%)
 
 Author: Nike Rocket Team
-Updated: November 21, 2025
+Updated: November 24, 2025
 """
 
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text
@@ -129,6 +130,9 @@ class Signal(Base):
     stop_loss = Column(Float, nullable=False)
     take_profit = Column(Float, nullable=False)
     leverage = Column(Float, default=1.0)
+    
+    # Risk percentage (0.02 = 2% aggressive, 0.03 = 3% conservative)
+    risk_pct = Column(Float, default=0.02)
     
     # Market context
     timeframe = Column(String, nullable=True)
