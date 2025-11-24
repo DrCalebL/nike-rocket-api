@@ -2472,22 +2472,19 @@ ROI: ${{roi}}`;
             startBtn.textContent = '⏳ Starting...';
             
             try {{
-                const response = await fetch('/api/setup-agent', {{
+                const response = await fetch('/api/start-agent', {{
                     method: 'POST',
                     headers: {{
                         'X-API-Key': currentApiKey,
                         'Content-Type': 'application/json'
-                    }},
-                    body: JSON.stringify({{
-                        action: 'start'
-                    }})
+                    }}
                 }});
                 
                 const data = await response.json();
                 
                 const messageEl = document.getElementById('agent-message');
                 
-                if (data.status === 'success' || data.status === 'running') {{
+                if (data.status === 'success') {{
                     messageEl.style.display = 'block';
                     messageEl.style.background = '#d1fae5';
                     messageEl.style.color = '#065f46';
@@ -2505,6 +2502,16 @@ ROI: ${{roi}}`;
                     setTimeout(() => {{
                         checkAgentStatus();
                         messageEl.style.display = 'none';
+                    }}, 2000);
+                }} else if (data.redirect) {{
+                    // Not configured - redirect to setup
+                    messageEl.style.display = 'block';
+                    messageEl.style.background = '#fef3c7';
+                    messageEl.style.color = '#92400e';
+                    messageEl.textContent = '⚠️ ' + data.message;
+                    
+                    setTimeout(() => {{
+                        window.location.href = data.redirect;
                     }}, 2000);
                 }} else {{
                     messageEl.style.display = 'block';
