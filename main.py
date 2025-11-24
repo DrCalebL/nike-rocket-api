@@ -943,6 +943,7 @@ async def portfolio_dashboard(request: Request):
             transform: none !important;
         }}
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="container">
@@ -1325,6 +1326,76 @@ async def portfolio_dashboard(request: Request):
                 </div>
             </div>
             
+            <!-- Equity Curve Chart Section (NEW!) -->
+            <div class="equity-curve-section" style="
+                background: white;
+                border-radius: 12px;
+                padding: 30px;
+                margin-top: 30px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div>
+                        <h2 style="margin: 0; color: #667eea; font-size: 24px;">
+                            📈 Trading Equity Curve
+                        </h2>
+                        <p style="margin: 5px 0 0 0; font-size: 13px; color: #6b7280;">
+                            Pure trading performance (excludes deposits/withdrawals)
+                        </p>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span id="equity-stats" style="font-size: 13px; color: #6b7280;"></span>
+                        <button onclick="loadEquityCurve()" style="
+                            background: #667eea;
+                            color: white;
+                            border: none;
+                            padding: 8px 16px;
+                            border-radius: 6px;
+                            cursor: pointer;
+                            font-size: 14px;
+                            box-shadow: 0 4px 6px rgba(102, 126, 234, 0.3);
+                            transition: all 0.1s ease;
+                        ">
+                            🔄 Refresh
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="equity-chart-container" style="position: relative; height: 350px; width: 100%;">
+                    <canvas id="equity-chart"></canvas>
+                </div>
+                
+                <div id="equity-summary" style="
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+                    gap: 15px;
+                    margin-top: 20px;
+                    padding-top: 20px;
+                    border-top: 1px solid #e5e7eb;
+                ">
+                    <div style="text-align: center;">
+                        <div style="font-size: 12px; color: #6b7280;">Starting</div>
+                        <div id="eq-initial" style="font-size: 18px; font-weight: 600; color: #374151;">$0</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 12px; color: #6b7280;">Current</div>
+                        <div id="eq-current" style="font-size: 18px; font-weight: 600; color: #10b981;">$0</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 12px; color: #6b7280;">Peak</div>
+                        <div id="eq-peak" style="font-size: 18px; font-weight: 600; color: #667eea;">$0</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 12px; color: #6b7280;">Trough</div>
+                        <div id="eq-trough" style="font-size: 18px; font-weight: 600; color: #ef4444;">$0</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 12px; color: #6b7280;">Max Drawdown</div>
+                        <div id="eq-maxdd" style="font-size: 18px; font-weight: 600; color: #f59e0b;">0%</div>
+                    </div>
+                </div>
+            </div>
+            
             <!-- Transaction History Section (NEW!) -->
             <div class="transaction-history" style="
                 background: white;
@@ -1507,6 +1578,8 @@ async def portfolio_dashboard(request: Request):
                     // Load balance summary and transactions
                     await loadBalanceSummary();
                     await loadTransactionHistory();
+                    // Load equity curve chart
+                    await loadEquityCurve();
                     // Check agent status
                     await checkAgentStatus();
                 }} else if (data.status === 'not_initialized') {{
@@ -1723,6 +1796,173 @@ async def portfolio_dashboard(request: Request):
                 document.getElementById('transaction-list').innerHTML = `
                     <div style="text-align: center; padding: 40px; color: #ef4444;">
                         Error loading transactions
+                    </div>
+                `;
+            }}
+        }}
+        
+        // ==================== EQUITY CURVE CHART ====================
+        let equityChart = null;
+        
+        async function loadEquityCurve() {{
+            try {{
+                const response = await fetch(`/api/portfolio/equity-curve?key=${{currentApiKey}}`);
+                const data = await response.json();
+                
+                if (data.status === 'success' || data.status === 'no_trades') {{
+                    // Update summary stats
+                    document.getElementById('eq-initial').textContent = `$${{data.initial_capital.toLocaleString()}}`;
+                    document.getElementById('eq-current').textContent = `$${{data.current_equity.toLocaleString()}}`;
+                    document.getElementById('eq-peak').textContent = `$${{data.max_equity.toLocaleString()}}`;
+                    document.getElementById('eq-trough').textContent = `$${{data.min_equity.toLocaleString()}}`;
+                    document.getElementById('eq-maxdd').textContent = `${{data.max_drawdown.toFixed(1)}}%`;
+                    
+                    // Color current equity based on profit/loss
+                    const currentEl = document.getElementById('eq-current');
+                    if (data.current_equity >= data.initial_capital) {{
+                        currentEl.style.color = '#10b981';
+                    }} else {{
+                        currentEl.style.color = '#ef4444';
+                    }}
+                    
+                    // Update stats text
+                    document.getElementById('equity-stats').textContent = 
+                        `${{data.total_trades}} trades | Total PnL: $${{data.total_pnl >= 0 ? '+' : ''}}${{data.total_pnl.toLocaleString()}}`;
+                    
+                    // Prepare chart data
+                    const labels = data.equity_curve.map(point => {{
+                        const date = new Date(point.date);
+                        return date.toLocaleDateString('en-US', {{ month: 'short', day: 'numeric' }});
+                    }});
+                    
+                    const equityData = data.equity_curve.map(point => point.equity);
+                    
+                    // Destroy existing chart if any
+                    if (equityChart) {{
+                        equityChart.destroy();
+                    }}
+                    
+                    // Create gradient
+                    const ctx = document.getElementById('equity-chart').getContext('2d');
+                    const gradient = ctx.createLinearGradient(0, 0, 0, 350);
+                    
+                    // Color based on profit/loss
+                    if (data.current_equity >= data.initial_capital) {{
+                        gradient.addColorStop(0, 'rgba(16, 185, 129, 0.3)');
+                        gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+                    }} else {{
+                        gradient.addColorStop(0, 'rgba(239, 68, 68, 0.3)');
+                        gradient.addColorStop(1, 'rgba(239, 68, 68, 0.0)');
+                    }}
+                    
+                    // Create chart
+                    equityChart = new Chart(ctx, {{
+                        type: 'line',
+                        data: {{
+                            labels: labels,
+                            datasets: [{{
+                                label: 'Trading Equity',
+                                data: equityData,
+                                borderColor: data.current_equity >= data.initial_capital ? '#10b981' : '#ef4444',
+                                backgroundColor: gradient,
+                                borderWidth: 2,
+                                fill: true,
+                                tension: 0.3,
+                                pointRadius: equityData.length > 50 ? 0 : 3,
+                                pointHoverRadius: 6,
+                                pointBackgroundColor: data.current_equity >= data.initial_capital ? '#10b981' : '#ef4444',
+                                pointBorderColor: '#fff',
+                                pointBorderWidth: 2
+                            }},
+                            {{
+                                label: 'Starting Capital',
+                                data: Array(equityData.length).fill(data.initial_capital),
+                                borderColor: '#9ca3af',
+                                borderWidth: 1,
+                                borderDash: [5, 5],
+                                fill: false,
+                                pointRadius: 0,
+                                tension: 0
+                            }}]
+                        }},
+                        options: {{
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: {{
+                                intersect: false,
+                                mode: 'index'
+                            }},
+                            plugins: {{
+                                legend: {{
+                                    display: true,
+                                    position: 'top',
+                                    labels: {{
+                                        usePointStyle: true,
+                                        padding: 20
+                                    }}
+                                }},
+                                tooltip: {{
+                                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                    titleColor: '#fff',
+                                    bodyColor: '#fff',
+                                    padding: 12,
+                                    displayColors: false,
+                                    callbacks: {{
+                                        title: function(context) {{
+                                            const idx = context[0].dataIndex;
+                                            const point = data.equity_curve[idx];
+                                            return point.trade || 'Balance';
+                                        }},
+                                        label: function(context) {{
+                                            const idx = context.dataIndex;
+                                            const point = data.equity_curve[idx];
+                                            const lines = [`Equity: $${{point.equity.toLocaleString()}}`];
+                                            if (point.pnl !== 0) {{
+                                                const pnlStr = point.pnl >= 0 ? `+$${{point.pnl}}` : `-$${{Math.abs(point.pnl)}}`;
+                                                lines.push(`Trade PnL: ${{pnlStr}}`);
+                                            }}
+                                            lines.push(`Cumulative: $${{point.cumulative_pnl >= 0 ? '+' : ''}}${{point.cumulative_pnl}}`);
+                                            return lines;
+                                        }}
+                                    }}
+                                }}
+                            }},
+                            scales: {{
+                                x: {{
+                                    grid: {{
+                                        display: false
+                                    }},
+                                    ticks: {{
+                                        maxTicksLimit: 8,
+                                        color: '#6b7280'
+                                    }}
+                                }},
+                                y: {{
+                                    grid: {{
+                                        color: 'rgba(0, 0, 0, 0.05)'
+                                    }},
+                                    ticks: {{
+                                        callback: function(value) {{
+                                            return '$ ' + value.toLocaleString();
+                                        }},
+                                        color: '#6b7280'
+                                    }}
+                                }}
+                            }}
+                        }}
+                    }});
+                }} else {{
+                    document.getElementById('equity-chart-container').innerHTML = `
+                        <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #9ca3af;">
+                            No trading data available yet
+                        </div>
+                    `;
+                }}
+            }} catch (error) {{
+                console.error('Error loading equity curve:', error);
+                document.getElementById('equity-chart-container').innerHTML = `
+                    <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #ef4444;">
+                        Error loading equity curve
                     </div>
                 `;
             }}
