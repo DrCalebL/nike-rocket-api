@@ -11,14 +11,16 @@ Endpoints:
 - POST /api/users/register - New user signup
 - GET /api/users/verify - Verify user access
 - GET /api/users/stats - Get user statistics
-- POST /api/setup-agent - Setup hosted trading agent (NEW!)
-- GET /api/agent-status - Get agent status (NEW!)
-- POST /api/stop-agent - Stop trading agent (NEW!)
+- POST /api/setup-agent - Setup hosted trading agent
+- GET /api/agent-status - Get agent status
+- POST /api/stop-agent - Stop trading agent (deletes credentials)
+- POST /api/agent/activate - Activate configured agent (NEW!)
+- POST /api/agent/deactivate - Pause agent without deleting credentials (NEW!)
 - POST /api/payments/create - Create payment link
 - POST /api/payments/webhook - Coinbase Commerce webhook
 
 Author: Nike Rocket Team
-Updated: November 21, 2025
+Updated: November 24, 2025
 """
 
 from fastapi import APIRouter, HTTPException, Header, Depends, BackgroundTasks
@@ -777,6 +779,105 @@ async def stop_agent(
         "message": "Trading agent stopped",
         "agent_active": False
     }
+
+
+@router.post("/api/agent/activate")
+async def activate_agent(
+    x_api_key: str = Header(..., alias="X-API-Key"),
+    db: Session = Depends(get_db)
+):
+    """
+    Activate an already-configured trading agent
+    
+    This endpoint is for users who have already setup their agent
+    and just want to turn it on manually.
+    
+    Requirements:
+    - User must have credentials_set = True
+    - User must have access_granted = True
+    
+    Called by: Dashboard "Start Agent" button
+    Auth: Requires user API key
+    """
+    
+    # Find user
+    user = db.query(User).filter(User.api_key == x_api_key).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    # Check if agent is configured
+    if not user.credentials_set:
+        return {
+            "status": "error",
+            "message": "Agent not configured. Please complete setup first.",
+            "redirect": f"/setup?key={x_api_key}"
+        }
+    
+    # Check if access granted
+    if not user.access_granted:
+        return {
+            "status": "error",
+            "message": "Account suspended. Please contact support."
+        }
+    
+    try:
+        # Mark agent as active
+        user.agent_active = True
+        db.commit()
+        
+        logger.info(f"✅ Agent activated for user: {user.email}")
+        
+        return {
+            "status": "success",
+            "message": "Trading agent activated successfully",
+            "agent_status": "active",
+            "note": "Your agent is now following signals"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Error activating agent: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to activate agent: {str(e)}")
+
+
+@router.post("/api/agent/deactivate")
+async def deactivate_agent(
+    x_api_key: str = Header(..., alias="X-API-Key"),
+    db: Session = Depends(get_db)
+):
+    """
+    Deactivate (pause) trading agent
+    
+    This will pause signal following without deleting credentials.
+    User can re-activate anytime.
+    
+    Called by: Dashboard "Stop Agent" button
+    Auth: Requires user API key
+    """
+    
+    # Find user
+    user = db.query(User).filter(User.api_key == x_api_key).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    try:
+        # Mark agent as inactive
+        user.agent_active = False
+        db.commit()
+        
+        logger.info(f"⏸️ Agent deactivated for user: {user.email}")
+        
+        return {
+            "status": "success",
+            "message": "Trading agent deactivated",
+            "agent_status": "paused",
+            "note": "Your agent will no longer follow signals until re-activated"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Error deactivating agent: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to deactivate agent: {str(e)}")
 
 
 # ==================== PAYMENT ENDPOINTS ====================
