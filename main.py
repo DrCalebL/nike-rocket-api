@@ -1538,14 +1538,8 @@ async def portfolio_dashboard(request: Request):
             // Start agent status monitoring
             startAgentStatusMonitoring();
             
-            if (stats && stats.status !== 'no_data') {{
-                updateDashboard(stats);
-            }} else {{
-                // Show empty state
-                document.getElementById('profit-label').textContent = 'No Trades Yet';
-                document.getElementById('total-profit').textContent = '$0';
-                document.getElementById('time-tracking').textContent = 'Start trading to see your stats!';
-            }}
+            // Don't call updateDashboard - portfolio data loaded separately
+            // The loadBalanceSummary() function handles all portfolio updates
         }}
         
         function updateDashboard(stats) {{
