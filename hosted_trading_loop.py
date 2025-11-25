@@ -328,6 +328,8 @@ class HostedTradingLoop:
             risk_pct = float(signal.get('risk_pct', DEFAULT_RISK_PERCENTAGE))
             
             # ==================== POSITION SIZING ====================
+            # 2% (or 3%) risk formula - leverage does NOT multiply position size
+            # Leverage only affects margin required, not the actual risk
             risk_amount = equity * risk_pct
             risk_per_unit = abs(entry_price - stop_loss)
             
@@ -335,15 +337,22 @@ class HostedTradingLoop:
                 self.logger.error(f"   ❌ {user_short}: Invalid SL distance")
                 return False
             
-            base_position_size = risk_amount / risk_per_unit
-            position_size = base_position_size * leverage
+            # Position size = risk amount / risk per unit (NO leverage multiplication)
+            position_size = risk_amount / risk_per_unit
             
             # Round to exchange precision
             quantity = float(exchange.amount_to_precision(kraken_symbol, position_size))
             
             self.logger.info(f"   💰 Equity: ${equity:,.2f}")
             self.logger.info(f"   🎯 Risk: ${risk_amount:,.2f} ({risk_pct*100:.0f}%)")
-            self.logger.info(f"   📐 Position: {quantity} contracts")
+            self.logger.info(f"   📐 Position: {quantity} units @ {leverage}x leverage")
+            
+            # ==================== SET LEVERAGE ====================
+            try:
+                exchange.set_leverage(int(leverage), kraken_symbol)
+                self.logger.info(f"   ⚙️ Leverage set to {int(leverage)}x")
+            except Exception as e:
+                self.logger.warning(f"   ⚠️ Could not set leverage: {e}")
             
             # ==================== EXECUTE 3-ORDER BRACKET ====================
             
