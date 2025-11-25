@@ -83,28 +83,13 @@ def create_error_logs_table():
         )
     """)
     
-    # Trades table
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS trades (
-            id SERIAL PRIMARY KEY,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            api_key VARCHAR(100),
-            signal_id VARCHAR(100),
-            symbol VARCHAR(20),
-            action VARCHAR(10),
-            entry_price DECIMAL(20, 8),
-            exit_price DECIMAL(20, 8),
-            quantity DECIMAL(20, 8),
-            profit DECIMAL(20, 8),
-            status VARCHAR(20),
-            exchange VARCHAR(50)
-        )
-    """)
+    # Trades table is created by position_monitor.py
+    # No need to create it here as it has a different schema
     
     # Indexes
     cur.execute("CREATE INDEX IF NOT EXISTS idx_error_logs_timestamp ON error_logs(timestamp DESC)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_agent_logs_timestamp ON agent_logs(timestamp DESC)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp DESC)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_trades_closed_at ON trades(closed_at DESC)")
     
     conn.commit()
     cur.close()
