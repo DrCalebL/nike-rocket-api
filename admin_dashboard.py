@@ -196,7 +196,7 @@ def get_all_users_with_status() -> List[Dict]:
 
 
 def get_recent_errors(hours: int = 24) -> List[Dict]:
-    """Get recent errors"""
+    """Get recent errors with user context"""
     if not table_exists('error_logs'):
         return []
     
@@ -204,26 +204,39 @@ def get_recent_errors(hours: int = 24) -> List[Dict]:
         conn = get_db_connection()
         cur = conn.cursor()
         
+        # Get errors with user email if available
         cur.execute("""
-            SELECT timestamp, api_key, error_type, error_message
-            FROM error_logs
-            WHERE timestamp > NOW() - INTERVAL '%s hours'
-            ORDER BY timestamp DESC
-            LIMIT 50
+            SELECT 
+                el.timestamp, 
+                el.api_key, 
+                el.error_type, 
+                el.error_message,
+                fu.email,
+                el.context
+            FROM error_logs el
+            LEFT JOIN follower_users fu ON el.api_key = fu.api_key
+            WHERE el.timestamp > NOW() - INTERVAL '%s hours'
+            ORDER BY el.timestamp DESC
+            LIMIT 100
         """, (hours,))
         
-        errors = [{
-            'timestamp': row[0],
-            'api_key': row[1],
-            'error_type': row[2],
-            'error_message': row[3],
-            'email': row[1][:20] + '...'
-        } for row in cur.fetchall()]
+        errors = []
+        for row in cur.fetchall():
+            timestamp, api_key, error_type, error_message, email, context = row
+            errors.append({
+                'timestamp': timestamp,
+                'api_key': api_key,
+                'error_type': error_type or 'Unknown',
+                'error_message': error_message or '',
+                'email': email or (api_key[:20] + '...' if api_key else 'N/A'),
+                'context': context
+            })
         
         cur.close()
         conn.close()
         return errors
-    except:
+    except Exception as e:
+        print(f"Error getting recent errors: {e}")
         return []
 
 
@@ -512,26 +525,52 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
         for error in errors:
             # Determine error severity color
             error_type = error.get('error_type', 'unknown').lower()
+            
+            # Categorize error type
             if 'auth' in error_type or 'credential' in error_type:
                 border_color = '#ef4444'  # Red - authentication
                 badge_class = 'error-badge-critical'
+                error_category = 'auth'
             elif 'network' in error_type or 'connection' in error_type or 'timeout' in error_type:
                 border_color = '#f59e0b'  # Orange - network
                 badge_class = 'error-badge-warning'
-            elif 'insufficient' in error_type or 'balance' in error_type:
+                error_category = 'network'
+            elif 'insufficient' in error_type or 'balance' in error_type or 'funds' in error_type:
                 border_color = '#8b5cf6'  # Purple - funds
                 badge_class = 'error-badge-funds'
+                error_category = 'funds'
+            elif 'trade' in error_type or 'order' in error_type or 'execution' in error_type:
+                border_color = '#3b82f6'  # Blue - trade
+                badge_class = 'error-badge-info'
+                error_category = 'trade'
             else:
                 border_color = '#6b7280'  # Gray - other
                 badge_class = 'error-badge-info'
+                error_category = 'other'
+            
+            # Format error message
+            error_msg = error.get('error_message', '')
+            if len(error_msg) > 300:
+                error_msg = error_msg[:300] + '...'
+            
+            # User email for display
+            user_display = error.get('email', 'Unknown User')
             
             error_items += f"""
-            <div class="error-item" style="border-left-color: {border_color};">
+            <div class="error-item" 
+                 style="border-left-color: {border_color};" 
+                 data-error-type="{error_category}"
+                 data-user="{user_display.lower()}"
+                 data-message="{error_msg.lower()}"
+                 data-error-category="{error_type.lower()}">
                 <div class="error-header">
-                    <span class="error-type {badge_class}">{error.get('error_type', 'Unknown')}</span>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span class="error-type {badge_class}">{error.get('error_type', 'Unknown')}</span>
+                        <span style="color: #60a5fa; font-size: 12px;">👤 {user_display}</span>
+                    </div>
                     <span class="error-timestamp">{error.get('timestamp', '')}</span>
                 </div>
-                <div class="error-message">{error.get('error_message', '')[:300]}</div>
+                <div class="error-message">{error_msg}</div>
                 <div class="error-context">API Key: {error.get('api_key', 'N/A')[:15]}...</div>
             </div>
             """
@@ -706,6 +745,97 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
         .legend-dot.funds {{ background: #8b5cf6; }}
         .legend-dot.info {{ background: #6b7280; }}
         
+        /* Search Box */
+        .search-box {{
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }}
+        .search-input {{
+            flex: 1;
+            padding: 12px 16px;
+            background: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 8px;
+            color: #e5e7eb;
+            font-size: 14px;
+        }}
+        .search-input:focus {{
+            outline: none;
+            border-color: #10b981;
+        }}
+        .search-input::placeholder {{
+            color: #6b7280;
+        }}
+        .filter-select {{
+            padding: 12px 16px;
+            background: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 8px;
+            color: #e5e7eb;
+            font-size: 14px;
+            cursor: pointer;
+            min-width: 180px;
+        }}
+        .filter-select:focus {{
+            outline: none;
+            border-color: #10b981;
+        }}
+        .clear-search {{
+            padding: 12px 20px;
+            background: #374151;
+            border: none;
+            border-radius: 8px;
+            color: #e5e7eb;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }}
+        .clear-search:hover {{
+            background: #4b5563;
+        }}
+        
+        /* Pagination */
+        .pagination {{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 20px;
+            padding: 20px;
+        }}
+        .page-btn {{
+            padding: 8px 16px;
+            background: #374151;
+            border: 1px solid #4b5563;
+            border-radius: 6px;
+            color: #e5e7eb;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }}
+        .page-btn:hover {{
+            background: #4b5563;
+            border-color: #10b981;
+        }}
+        .page-btn:disabled {{
+            opacity: 0.5;
+            cursor: not-allowed;
+        }}
+        .page-btn.active {{
+            background: #10b981;
+            border-color: #10b981;
+            font-weight: 600;
+        }}
+        .page-info {{
+            color: #9ca3af;
+            font-size: 14px;
+        }}
+        
+        /* Hidden class for filtering */
+        .hidden {{ display: none; }}
+        
         /* Error Items */
         .error-item {{ 
             border-left: 4px solid #ef4444; 
@@ -786,7 +916,17 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
         
         <div class="users-section">
             <h2>👥 Users ({stats.get('total_users', 0)})</h2>
-            <table>
+            <div class="search-box">
+                <input 
+                    type="text" 
+                    id="userSearch" 
+                    class="search-input" 
+                    placeholder="🔍 Search by email or API key..."
+                    onkeyup="filterUsers()"
+                />
+                <button class="clear-search" onclick="clearSearch()">Clear</button>
+            </div>
+            <table id="usersTable">>
                 <thead>
                     <tr>
                         <th>Status</th>
@@ -815,8 +955,201 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
                     <div class="legend-item"><span class="legend-dot info"></span> Other</div>
                 </div>
             </div>
+            <div class="search-box">
+                <input 
+                    type="text" 
+                    id="errorSearch" 
+                    class="search-input" 
+                    placeholder="🔍 Search errors by user, type, or message..."
+                    onkeyup="filterErrors()"
+                />
+                <select id="errorTypeFilter" class="filter-select" onchange="filterErrors()">
+                    <option value="">All Error Types</option>
+                    <option value="auth">🔴 Auth/Credential</option>
+                    <option value="network">🟠 Network/Timeout</option>
+                    <option value="funds">🟣 Insufficient Funds</option>
+                    <option value="trade">⚙️ Trade Execution</option>
+                    <option value="other">⚪ Other</option>
+                </select>
+                <button class="clear-search" onclick="clearErrorFilters()">Clear</button>
+            </div>
+            <div id="errorCount" style="color: #9ca3af; font-size: 13px; margin-bottom: 15px;"></div>
             {error_items}
+            <div class="pagination" id="errorPagination"></div>
         </div>
     </div>
+    
+    <script>
+    // ============ USER SEARCH FUNCTIONALITY ============
+    function filterUsers() {{
+        const searchInput = document.getElementById('userSearch').value.toLowerCase();
+        const table = document.getElementById('usersTable');
+        const rows = table.getElementsByTagName('tr');
+        
+        let visibleCount = 0;
+        // Start from 1 to skip header row
+        for (let i = 1; i < rows.length; i++) {{
+            const row = rows[i];
+            const text = row.textContent.toLowerCase();
+            
+            if (text.includes(searchInput)) {{
+                row.style.display = '';
+                visibleCount++;
+            }} else {{
+                row.style.display = 'none';
+            }}
+        }}
+        
+        // Update visible count
+        const header = document.querySelector('.users-section h2');
+        const totalUsers = {stats.get('total_users', 0)};
+        if (searchInput) {{
+            header.textContent = `👥 Users (${{visibleCount}} of ${{totalUsers}})`;
+        }} else {{
+            header.textContent = `👥 Users (${{totalUsers}})`;
+        }}
+    }}
+    
+    function clearSearch() {{
+        document.getElementById('userSearch').value = '';
+        filterUsers();
+    }}
+    
+    // ============ ERROR FILTERING FUNCTIONALITY ============
+    function filterErrors() {{
+        const searchInput = document.getElementById('errorSearch').value.toLowerCase();
+        const typeFilter = document.getElementById('errorTypeFilter').value;
+        const errorItems = document.querySelectorAll('.error-item');
+        
+        let visibleCount = 0;
+        let totalErrors = errorItems.length;
+        
+        errorItems.forEach(item => {{
+            const user = item.getAttribute('data-user') || '';
+            const message = item.getAttribute('data-message') || '';
+            const category = item.getAttribute('data-error-category') || '';
+            const errorType = item.getAttribute('data-error-type') || '';
+            
+            // Check search text match
+            const searchMatch = !searchInput || 
+                                user.includes(searchInput) || 
+                                message.includes(searchInput) || 
+                                category.includes(searchInput);
+            
+            // Check type filter match
+            const typeMatch = !typeFilter || errorType === typeFilter;
+            
+            if (searchMatch && typeMatch) {{
+                item.classList.remove('hidden');
+                visibleCount++;
+            }} else {{
+                item.classList.add('hidden');
+            }}
+        }});
+        
+        // Update count display
+        const countDisplay = document.getElementById('errorCount');
+        if (searchInput || typeFilter) {{
+            countDisplay.textContent = `Showing ${{visibleCount}} of ${{totalErrors}} errors`;
+            countDisplay.style.display = 'block';
+        }} else {{
+            countDisplay.style.display = 'none';
+        }}
+        
+        // Reset pagination to page 1 when filtering
+        currentPage = 1;
+        paginateErrors();
+    }}
+    
+    function clearErrorFilters() {{
+        document.getElementById('errorSearch').value = '';
+        document.getElementById('errorTypeFilter').value = '';
+        
+        // Remove all hidden classes
+        const errorItems = document.querySelectorAll('.error-item');
+        errorItems.forEach(item => item.classList.remove('hidden'));
+        
+        filterErrors();
+    }}
+    
+    // ============ ERROR PAGINATION ============
+    const errorsPerPage = 10;
+    let currentPage = 1;
+    let totalErrors = 0;
+    
+    function paginateErrors() {{
+        // Only paginate visible (not filtered out) errors
+        const allErrors = document.querySelectorAll('.error-item');
+        const visibleErrors = Array.from(allErrors).filter(item => !item.classList.contains('hidden'));
+        totalErrors = visibleErrors.length;
+        const totalPages = Math.ceil(totalErrors / errorsPerPage);
+        
+        // Hide all errors first
+        visibleErrors.forEach((item, index) => {{
+            const pageNumber = Math.floor(index / errorsPerPage) + 1;
+            if (pageNumber === currentPage) {{
+                item.style.display = 'block';
+            }} else {{
+                item.style.display = 'none';
+            }}
+        }});
+        
+        // Build pagination controls
+        const pagination = document.getElementById('errorPagination');
+        if (totalPages <= 1) {{
+            pagination.style.display = 'none';
+            return;
+        }}
+        
+        pagination.style.display = 'flex';
+        let html = '';
+        
+        // Previous button
+        html += `<button class="page-btn" onclick="changePage(${{currentPage - 1}})" ${{currentPage === 1 ? 'disabled' : ''}}>← Prev</button>`;
+        
+        // Page info
+        html += `<span class="page-info">Page ${{currentPage}} of ${{totalPages}} (${{totalErrors}} errors)</span>`;
+        
+        // Next button
+        html += `<button class="page-btn" onclick="changePage(${{currentPage + 1}})" ${{currentPage === totalPages ? 'disabled' : ''}}>Next →</button>`;
+        
+        // Jump to first/last
+        if (totalPages > 3) {{
+            html += `<button class="page-btn" onclick="changePage(1)" ${{currentPage === 1 ? 'disabled' : ''}}>First</button>`;
+            html += `<button class="page-btn" onclick="changePage(${{totalPages}})" ${{currentPage === totalPages ? 'disabled' : ''}}>Last</button>`;
+        }}
+        
+        pagination.innerHTML = html;
+    }}
+    
+    function changePage(page) {{
+        const visibleErrors = Array.from(document.querySelectorAll('.error-item')).filter(item => !item.classList.contains('hidden'));
+        const totalPages = Math.ceil(visibleErrors.length / errorsPerPage);
+        if (page < 1 || page > totalPages) return;
+        
+        currentPage = page;
+        paginateErrors();
+        
+        // Scroll to errors section
+        document.querySelector('.errors-section').scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+    }}
+    
+    // Initialize pagination on page load
+    window.addEventListener('load', () => {{
+        paginateErrors();
+    }});
+    
+    // Review position deletion
+    function deletePosition(posId) {{
+        if (confirm('Delete this position from review? This action cannot be undone.')) {{
+            fetch('/admin/delete-review-position/' + posId, {{
+                method: 'DELETE',
+                headers: {{'X-Admin-Key': '{ADMIN_PASSWORD}'}}
+            }})
+            .then(() => location.reload())
+            .catch(err => alert('Error: ' + err));
+        }}
+    }}
+    </script>
 </body>
 </html>"""
