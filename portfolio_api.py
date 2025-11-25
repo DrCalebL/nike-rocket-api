@@ -191,7 +191,7 @@ async def initialize_portfolio_autodetect(request: Request):
 
 @router.get("/api/portfolio/balance-summary")
 async def get_balance_summary(request: Request):
-    """Get comprehensive balance summary"""
+    """Get comprehensive balance summary including trading profit from trades table"""
     api_key = request.headers.get("X-API-Key") or request.query_params.get("key")
     
     if not api_key:
@@ -207,6 +207,18 @@ async def get_balance_summary(request: Request):
         db_pool = await asyncpg.create_pool(DATABASE_URL)
         checker = BalanceChecker(db_pool)
         summary = await checker.get_balance_summary(api_key)
+        
+        # Also get total profit from actual trades
+        conn = await db_pool.acquire()
+        trade_stats = await conn.fetchrow("""
+            SELECT 
+                COALESCE(SUM(t.profit_usd), 0) as total_profit,
+                COUNT(*) as total_trades
+            FROM trades t
+            JOIN follower_users fu ON t.user_id = fu.id
+            WHERE fu.api_key = $1
+        """, api_key)
+        await db_pool.release(conn)
         await db_pool.close()
         
         if not summary:
@@ -214,6 +226,20 @@ async def get_balance_summary(request: Request):
                 "status": "not_initialized",
                 "message": "Portfolio not initialized"
             }
+        
+        # Override total_profit with actual trading profit
+        if trade_stats:
+            summary['total_profit'] = float(trade_stats['total_profit'] or 0)
+            summary['total_trades'] = int(trade_stats['total_trades'] or 0)
+            
+            # Recalculate ROI with actual profit
+            initial_capital = summary.get('initial_capital', 0)
+            total_capital = summary.get('total_capital', 0)
+            
+            if initial_capital > 0:
+                summary['roi_on_initial'] = (summary['total_profit'] / initial_capital) * 100
+            if total_capital > 0:
+                summary['roi_on_total'] = (summary['total_profit'] / total_capital) * 100
         
         return {
             "status": "success",
@@ -348,27 +374,27 @@ async def get_portfolio_stats(request: Request, period: str = "30d"):
             period_label = "All Time"
         
         # ═══════════════════════════════════════════════════════════════
-        # FIXED: Use pnl_usd column instead of pnl
+        # FIXED: Read from trades table (copytrade results)
         # ═══════════════════════════════════════════════════════════════
         trades_query = await conn.fetch("""
             SELECT 
-                pt.pnl_usd,
-                pt.pnl_percent,
-                pt.status,
-                pt.exit_time,
-                pt.entry_time
-            FROM portfolio_trades pt
-            JOIN portfolio_users pu ON pt.user_id = pu.id
-            WHERE pu.api_key = $1
-            AND pt.exit_time >= $2
-            ORDER BY pt.exit_time DESC
+                t.profit_usd as pnl_usd,
+                t.profit_percent as pnl_percent,
+                'closed' as status,
+                t.closed_at as exit_time,
+                t.opened_at as entry_time
+            FROM trades t
+            JOIN follower_users fu ON t.user_id = fu.id
+            WHERE fu.api_key = $1
+            AND t.closed_at >= $2
+            ORDER BY t.closed_at DESC
         """, api_key, start_date)
         
         first_trade = await conn.fetchval("""
-            SELECT MIN(pt.entry_time)
-            FROM portfolio_trades pt
-            JOIN portfolio_users pu ON pt.user_id = pu.id
-            WHERE pu.api_key = $1
+            SELECT MIN(t.opened_at)
+            FROM trades t
+            JOIN follower_users fu ON t.user_id = fu.id
+            WHERE fu.api_key = $1
         """, api_key)
         
         await conn.close()
@@ -594,25 +620,25 @@ async def get_equity_curve(request: Request):
         if initial_capital <= 0:
             initial_capital = summary.get('current_value', 1000) if summary else 1000
         
-        # Get all trades sorted by time
+        # Get all trades sorted by time (from trades table, not portfolio_trades)
         conn = await asyncpg.connect(DATABASE_URL)
         
         trades = await conn.fetch("""
             SELECT 
-                pt.pnl_usd,
-                pt.exit_time,
-                pt.symbol,
-                pt.side
-            FROM portfolio_trades pt
-            JOIN portfolio_users pu ON pt.user_id = pu.id
-            WHERE pu.api_key = $1
-            AND pt.exit_time IS NOT NULL
-            ORDER BY pt.exit_time ASC
+                t.profit_usd as pnl_usd,
+                t.closed_at as exit_time,
+                t.symbol,
+                t.side
+            FROM trades t
+            JOIN follower_users fu ON t.user_id = fu.id
+            WHERE fu.api_key = $1
+            AND t.closed_at IS NOT NULL
+            ORDER BY t.closed_at ASC
         """, api_key)
         
         # Get portfolio start date
         start_date = await conn.fetchval("""
-            SELECT created_at FROM portfolio_users WHERE api_key = $1
+            SELECT created_at FROM follower_users WHERE api_key = $1
         """, api_key)
         
         await conn.close()
