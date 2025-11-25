@@ -47,6 +47,16 @@ from hosted_trading_loop import start_hosted_trading
 # Import position monitor to track P&L when trades close
 from position_monitor import start_position_monitor
 
+# Import tax reports for income tracking
+from tax_reports import (
+    get_monthly_income,
+    get_yearly_income,
+    get_user_fees,
+    generate_monthly_csv,
+    generate_yearly_csv,
+    generate_user_fees_csv
+)
+
 # Initialize FastAPI
 app = FastAPI(
     title="Nike Rocket Follower API",
@@ -413,6 +423,137 @@ async def delete_review_position(
     
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== TAX REPORTS ENDPOINTS ====================
+
+@app.get("/admin/reports/monthly-csv")
+async def download_monthly_csv(
+    year: int,
+    month: int,
+    password: str = ""
+):
+    """
+    Download monthly income report as CSV
+    
+    Query params:
+        year: Year (e.g., 2025)
+        month: Month (1-12)
+        password: Admin password
+    
+    Returns CSV file for download
+    """
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        csv_content = generate_monthly_csv(year, month)
+        filename = f"nike_rocket_income_{year}_{month:02d}.csv"
+        
+        from fastapi.responses import Response
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/reports/yearly-csv")
+async def download_yearly_csv(
+    year: int,
+    password: str = ""
+):
+    """
+    Download yearly income summary as CSV
+    
+    Query params:
+        year: Year (e.g., 2025)
+        password: Admin password
+    
+    Returns CSV file for download
+    """
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        csv_content = generate_yearly_csv(year)
+        filename = f"nike_rocket_income_{year}_yearly.csv"
+        
+        from fastapi.responses import Response
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/reports/user-fees-csv")
+async def download_user_fees_csv(
+    start_date: str,
+    end_date: str,
+    password: str = ""
+):
+    """
+    Download per-user fee breakdown as CSV
+    
+    Query params:
+        start_date: Start date (YYYY-MM-DD)
+        end_date: End date (YYYY-MM-DD)
+        password: Admin password
+    
+    Returns CSV file for download
+    """
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        csv_content = generate_user_fees_csv(start_date, end_date)
+        filename = f"nike_rocket_user_fees_{start_date}_to_{end_date}.csv"
+        
+        from fastapi.responses import Response
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/reports/income-summary")
+async def get_income_summary(
+    year: int,
+    password: str = ""
+):
+    """
+    Get income summary data (for dashboard display)
+    
+    Query params:
+        year: Year (e.g., 2025)
+        password: Admin password
+    
+    Returns JSON with income data
+    """
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        data = get_yearly_income(year)
+        return {
+            "status": "success",
+            "data": data
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
