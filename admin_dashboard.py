@@ -663,6 +663,88 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
         .stat-value {{ font-size: 32px; font-weight: bold; }}
         .stat-sub {{ color: #6b7280; font-size: 11px; margin-top: 4px; }}
         
+        /* Tax Reports Section */
+        .tax-reports-section {{
+            background: linear-gradient(135deg, #1a3a1f 0%, #1a1f2e 100%);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 2px solid #10b981;
+        }}
+        .tax-reports-section h2 {{
+            color: #10b981;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }}
+        .report-controls {{
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }}
+        .report-select {{
+            padding: 12px 16px;
+            background: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 8px;
+            color: #e5e7eb;
+            font-size: 14px;
+            cursor: pointer;
+            min-width: 150px;
+        }}
+        .report-select:focus {{
+            outline: none;
+            border-color: #10b981;
+        }}
+        .download-btn {{
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+        .download-btn:hover {{
+            background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+        }}
+        .download-btn:active {{
+            transform: translateY(0);
+        }}
+        .income-summary {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }}
+        .income-card {{
+            background: #0f1218;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #374151;
+        }}
+        .income-label {{
+            color: #9ca3af;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }}
+        .income-value {{
+            color: #10b981;
+            font-size: 24px;
+            font-weight: bold;
+        }}
+        
         /* Users Section */
         .users-section {{ 
             background: #1a1f2e;
@@ -840,6 +922,88 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
         /* Hidden class for filtering */
         .hidden {{ display: none; }}
         
+        /* Tax Reports Section */
+        .tax-section {{
+            background: linear-gradient(135deg, #1e3a5f 0%, #1a2332 100%);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 2px solid #10b981;
+        }}
+        .tax-section h2 {{
+            color: #10b981;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }}
+        .tax-controls {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }}
+        .tax-input {{
+            padding: 12px;
+            background: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 8px;
+            color: #e5e7eb;
+            font-size: 14px;
+        }}
+        .tax-input:focus {{
+            outline: none;
+            border-color: #10b981;
+        }}
+        .export-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }}
+        .export-btn {{
+            padding: 14px 20px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }}
+        .export-btn:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(16, 185, 129, 0.3);
+        }}
+        .export-btn:active {{
+            transform: translateY(0);
+        }}
+        .tax-summary {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #374151;
+        }}
+        .tax-stat {{
+            text-align: center;
+        }}
+        .tax-stat-label {{
+            color: #9ca3af;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }}
+        .tax-stat-value {{
+            color: #10b981;
+            font-size: 24px;
+            font-weight: bold;
+        }}
+        
         /* Error Items */
         .error-item {{ 
             border-left: 4px solid #ef4444; 
@@ -918,6 +1082,53 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
             </div>
         </div>
         
+        <div class="tax-reports-section">
+            <h2>💰 Tax & Income Reports</h2>
+            <p style="color: #9ca3af; margin-bottom: 20px; font-size: 13px;">
+                Export income data for Xero or tax filing. All amounts in USD. Fee rate: 10% of monthly profits.
+            </p>
+            
+            <div class="report-controls">
+                <select id="reportYear" class="report-select">
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                    <option value="2023">2023</option>
+                </select>
+                
+                <select id="reportMonth" class="report-select">
+                    <option value="">Select Month</option>
+                    <option value="1">January</option>
+                    <option value="2">February</option>
+                    <option value="3">March</option>
+                    <option value="4">April</option>
+                    <option value="5">May</option>
+                    <option value="6">June</option>
+                    <option value="7">July</option>
+                    <option value="8">August</option>
+                    <option value="9">September</option>
+                    <option value="10">October</option>
+                    <option value="11">November</option>
+                    <option value="12">December</option>
+                </select>
+                
+                <button class="download-btn" onclick="downloadMonthlyCSV()">
+                    📥 Download Monthly CSV
+                </button>
+                
+                <button class="download-btn" onclick="downloadYearlyCSV()">
+                    📅 Download Yearly CSV
+                </button>
+                
+                <button class="download-btn" onclick="downloadUserFeesCSV()">
+                    👥 Download Per-User CSV
+                </button>
+            </div>
+            
+            <div id="incomeSummary" class="income-summary">
+                <!-- Will be populated by JavaScript -->
+            </div>
+        </div>
+        
         <div class="users-section">
             <h2>👥 Users ({stats.get('total_users', 0)})</h2>
             <div class="search-box">
@@ -984,6 +1195,86 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
     </div>
     
     <script>
+    // ============ TAX REPORTS FUNCTIONALITY ============
+    const ADMIN_PASSWORD = '{ADMIN_PASSWORD}';
+    
+    function downloadMonthlyCSV() {{
+        const year = document.getElementById('reportYear').value;
+        const month = document.getElementById('reportMonth').value;
+        
+        if (!month) {{
+            alert('Please select a month');
+            return;
+        }}
+        
+        const url = `/admin/reports/monthly-csv?year=${{year}}&month=${{month}}&password=${{ADMIN_PASSWORD}}`;
+        window.location.href = url;
+    }}
+    
+    function downloadYearlyCSV() {{
+        const year = document.getElementById('reportYear').value;
+        const url = `/admin/reports/yearly-csv?year=${{year}}&password=${{ADMIN_PASSWORD}}`;
+        window.location.href = url;
+    }}
+    
+    function downloadUserFeesCSV() {{
+        const year = document.getElementById('reportYear').value;
+        const startDate = `${{year}}-01-01`;
+        const endDate = `${{year}}-12-31`;
+        
+        const url = `/admin/reports/user-fees-csv?start_date=${{startDate}}&end_date=${{endDate}}&password=${{ADMIN_PASSWORD}}`;
+        window.location.href = url;
+    }}
+    
+    // Load income summary on page load
+    async function loadIncomeSummary() {{
+        const year = document.getElementById('reportYear').value;
+        
+        try {{
+            const response = await fetch(`/admin/reports/income-summary?year=${{year}}&password=${{ADMIN_PASSWORD}}`);
+            const result = await response.json();
+            
+            if (result.status === 'success') {{
+                const data = result.data;
+                
+                const summaryHTML = `
+                    <div class="income-card">
+                        <div class="income-label">Total Fees Collected</div>
+                        <div class="income-value">$${{data.total_fees.toFixed(2)}}</div>
+                    </div>
+                    <div class="income-card">
+                        <div class="income-label">Total Trades</div>
+                        <div class="income-value">${{data.total_trades}}</div>
+                    </div>
+                    <div class="income-card">
+                        <div class="income-label">Unique Users</div>
+                        <div class="income-value">${{data.unique_users}}</div>
+                    </div>
+                    <div class="income-card">
+                        <div class="income-label">Avg Fee/Month</div>
+                        <div class="income-value">$${{data.avg_fee_per_month.toFixed(2)}}</div>
+                    </div>
+                    <div class="income-card">
+                        <div class="income-label">Avg Fee/Trade</div>
+                        <div class="income-value">$${{data.avg_fee_per_trade.toFixed(2)}}</div>
+                    </div>
+                `;
+                
+                document.getElementById('incomeSummary').innerHTML = summaryHTML;
+            }}
+        }} catch (error) {{
+            console.error('Error loading income summary:', error);
+        }}
+    }}
+    
+    // Update summary when year changes
+    document.getElementById('reportYear').addEventListener('change', loadIncomeSummary);
+    
+    // Load summary on page load
+    window.addEventListener('load', () => {{
+        loadIncomeSummary();
+    }});
+    
     // ============ USER SEARCH FUNCTIONALITY ============
     function filterUsers() {{
         const searchInput = document.getElementById('userSearch').value.toLowerCase();
