@@ -9,7 +9,8 @@ FIXED VERSION with startup_delay_seconds=30 to prevent race condition.
 Author: Nike Rocket Team
 Updated: November 24, 2025 - WITH HOSTED TRADING
 """
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Header
+from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
 from sqlalchemy import create_engine
@@ -34,6 +35,7 @@ from admin_dashboard import (
     get_all_users_with_status,
     get_recent_errors,
     get_stats_summary,
+    get_positions_needing_review,
     generate_admin_html,
     create_error_logs_table,
     ADMIN_PASSWORD
@@ -243,9 +245,10 @@ async def admin_dashboard(password: str = ""):
         users = get_all_users_with_status()
         errors = get_recent_errors(hours=24)
         stats = get_stats_summary()
+        positions_review = get_positions_needing_review()
         
         # Generate and return HTML
-        html = generate_admin_html(users, errors, stats)
+        html = generate_admin_html(users, errors, stats, positions_review)
         return HTMLResponse(html)
         
     except Exception as e:
@@ -380,6 +383,38 @@ async def reset_database(password: str = ""):
             "message": f"Database reset failed: {str(e)}",
             "error": str(e)
         }
+
+@app.delete("/admin/delete-review-position/{position_id}")
+async def delete_review_position(
+    position_id: int,
+    x_admin_key: Optional[str] = Header(None)
+):
+    """
+    Delete a position from the review list
+    
+    Admin only endpoint to clean up positions that have been manually reviewed
+    """
+    # Verify admin authentication
+    if x_admin_key != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        async with db_pool.acquire() as conn:
+            # Delete the position
+            result = await conn.execute(
+                "DELETE FROM open_positions WHERE id = $1 AND status = 'needs_review'",
+                position_id
+            )
+            
+            if result == "DELETE 0":
+                raise HTTPException(status_code=404, detail="Position not found or not in review status")
+            
+            return {"status": "success", "message": f"Position {position_id} deleted"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Serve static background images (NEW!)
 @app.get("/static/backgrounds/{filename}")
