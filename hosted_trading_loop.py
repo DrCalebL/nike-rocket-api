@@ -19,6 +19,7 @@ Updated: November 24, 2025
 import asyncio
 import ccxt
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 import os
@@ -343,9 +344,32 @@ class HostedTradingLoop:
             # Round to exchange precision
             quantity = float(exchange.amount_to_precision(kraken_symbol, position_size))
             
+            # Calculate position value for margin check
+            position_value = quantity * entry_price
+            
+            # ✅ KRAKEN-SPECIFIC: Increase leverage if needed to fit margin requirements
+            # Kraken requires: (position_value / leverage) × 1.5 ≤ available_balance
+            # Therefore: leverage ≥ (position_value × 1.5) / available_balance
+            available_balance = equity * 0.95  # Use 95% for safety
+            min_leverage_for_margin = (position_value * 1.5) / available_balance
+            
+            # Adjust leverage if needed
+            original_leverage = leverage
+            if min_leverage_for_margin > leverage:
+                leverage = int(math.ceil(min_leverage_for_margin))
+                # Cap at reasonable max (50x)
+                leverage = min(leverage, 50)
+                
+                if leverage > original_leverage:
+                    self.logger.warning(
+                        f"   ⚠️ Leverage increased to fit Kraken margin requirements: "
+                        f"{original_leverage}x → {leverage}x"
+                    )
+            
             self.logger.info(f"   💰 Equity: ${equity:,.2f}")
             self.logger.info(f"   🎯 Risk: ${risk_amount:,.2f} ({risk_pct*100:.0f}%)")
             self.logger.info(f"   📐 Position: {quantity} units @ {leverage}x leverage")
+            self.logger.info(f"   💵 Position value: ${position_value:,.2f}, Margin needed: ${position_value/leverage:,.2f}")
             
             # ==================== SET LEVERAGE ====================
             try:
