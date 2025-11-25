@@ -920,7 +920,7 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
         }}
         
         /* Hidden class for filtering */
-        .hidden {{ display: none; }}
+        .hidden {{ display: none !important; }}
         
         /* Tax Reports Section */
         .tax-section {{
@@ -1360,16 +1360,23 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
         const typeFilter = document.getElementById('errorTypeFilter').value;
         const errorItems = document.querySelectorAll('.error-item');
         
+        console.log('Filter triggered:', {{ searchInput, typeFilter, itemCount: errorItems.length }});
+        
         let visibleCount = 0;
         let totalErrors = errorItems.length;
         
         errorItems.forEach(item => {{
-            const user = item.getAttribute('data-user') || '';
-            const message = item.getAttribute('data-message') || '';
-            const category = item.getAttribute('data-error-category') || '';
-            const errorType = item.getAttribute('data-error-type') || '';
+            const user = (item.getAttribute('data-user') || '').toLowerCase();
+            const message = (item.getAttribute('data-message') || '').toLowerCase();
+            const category = (item.getAttribute('data-error-category') || '').toLowerCase();
+            const errorType = (item.getAttribute('data-error-type') || '').toLowerCase();
             
-            // Check search text match
+            // Debug: log first item's attributes
+            if (visibleCount === 0) {{
+                console.log('Sample item attributes:', {{ user, message, category, errorType }});
+            }}
+            
+            // Check search text match (search in user, message, and category)
             const searchMatch = !searchInput || 
                                 user.includes(searchInput) || 
                                 message.includes(searchInput) || 
@@ -1378,6 +1385,7 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
             // Check type filter match
             const typeMatch = !typeFilter || errorType === typeFilter;
             
+            // Show/hide based on both filters
             if (searchMatch && typeMatch) {{
                 item.classList.remove('hidden');
                 visibleCount++;
@@ -1385,6 +1393,8 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
                 item.classList.add('hidden');
             }}
         }});
+        
+        console.log('Filter results:', {{ visibleCount, totalErrors }});
         
         // Update count display
         const countDisplay = document.getElementById('errorCount');
@@ -1408,7 +1418,12 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
         const errorItems = document.querySelectorAll('.error-item');
         errorItems.forEach(item => item.classList.remove('hidden'));
         
-        filterErrors();
+        // Hide count display
+        document.getElementById('errorCount').style.display = 'none';
+        
+        // Reset pagination
+        currentPage = 1;
+        paginateErrors();
     }}
     
     // ============ ERROR PAGINATION ============
@@ -1423,13 +1438,20 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
         totalErrors = visibleErrors.length;
         const totalPages = Math.ceil(totalErrors / errorsPerPage);
         
-        // Hide all errors first
+        // First, hide all errors
+        allErrors.forEach(item => {{
+            // Don't touch hidden class (used by filters)
+            // Just use display for pagination
+            if (!item.classList.contains('hidden')) {{
+                item.style.display = 'none';
+            }}
+        }});
+        
+        // Show only the errors for current page
         visibleErrors.forEach((item, index) => {{
             const pageNumber = Math.floor(index / errorsPerPage) + 1;
             if (pageNumber === currentPage) {{
                 item.style.display = 'block';
-            }} else {{
-                item.style.display = 'none';
             }}
         }});
         
