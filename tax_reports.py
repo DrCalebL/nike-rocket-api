@@ -240,7 +240,7 @@ def get_earliest_trade_year() -> int:
         cur.execute("""
             SELECT MIN(EXTRACT(YEAR FROM closed_at))
             FROM trades
-            WHERE fee_usd > 0 AND closed_at IS NOT NULL
+            WHERE fee_charged > 0 AND closed_at IS NOT NULL
         """)
         
         result = cur.fetchone()
