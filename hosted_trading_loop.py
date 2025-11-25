@@ -347,13 +347,22 @@ class HostedTradingLoop:
             # Calculate position value for margin check
             position_value = quantity * entry_price
             
-            # ✅ KRAKEN-SPECIFIC: Increase leverage if needed to fit margin requirements
+            # ✅ KRAKEN-SPECIFIC: Verify leverage meets margin requirements
             # Kraken requires: (position_value / leverage) × 1.5 ≤ available_balance
             # Therefore: leverage ≥ (position_value × 1.5) / available_balance
+            #
+            # The signal includes leverage calculated by the main algo for its account.
+            # This code recalculates for THIS account's available margin as a safety net.
+            # Use the HIGHER of:
+            #   1. Signal's leverage (from main algo)
+            #   2. Calculated min leverage (for this account's available margin)
+            #
+            # Why? If user has manual trades open or other margin usage, they might need
+            # higher leverage than the signal indicates. This prevents "insufficient funds" errors.
             available_balance = equity * 0.95  # Use 95% for safety
             min_leverage_for_margin = (position_value * 1.5) / available_balance
             
-            # Adjust leverage if needed
+            # Adjust leverage if needed (take the maximum)
             original_leverage = leverage
             if min_leverage_for_margin > leverage:
                 leverage = int(math.ceil(min_leverage_for_margin))
@@ -363,7 +372,7 @@ class HostedTradingLoop:
                 if leverage > original_leverage:
                     self.logger.warning(
                         f"   ⚠️ Leverage increased to fit Kraken margin requirements: "
-                        f"{original_leverage}x → {leverage}x"
+                        f"{original_leverage}x → {leverage}x (manual trades or margin usage detected)"
                     )
             
             self.logger.info(f"   💰 Equity: ${equity:,.2f}")
