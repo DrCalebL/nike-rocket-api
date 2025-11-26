@@ -410,17 +410,25 @@ async def delete_review_position(
         raise HTTPException(status_code=401, detail="Unauthorized")
     
     try:
-        async with db_pool.acquire() as conn:
-            # Delete the position
-            result = await conn.execute(
-                "DELETE FROM open_positions WHERE id = $1 AND status = 'needs_review'",
-                position_id
-            )
-            
-            if result == "DELETE 0":
-                raise HTTPException(status_code=404, detail="Position not found or not in review status")
-            
-            return {"status": "success", "message": f"Position {position_id} deleted"}
+        import psycopg2
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        # Delete the position
+        cur.execute(
+            "DELETE FROM open_positions WHERE id = %s AND status = 'needs_review'",
+            (position_id,)
+        )
+        
+        rows_deleted = cur.rowcount
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        if rows_deleted == 0:
+            raise HTTPException(status_code=404, detail="Position not found or not in review status")
+        
+        return {"status": "success", "message": f"Position {position_id} deleted"}
     
     except HTTPException:
         raise
