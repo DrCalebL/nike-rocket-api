@@ -6,7 +6,7 @@ Works with ANY database schema by detecting columns dynamically
 
 import os
 import psycopg2
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -180,8 +180,13 @@ def get_all_users_with_status() -> List[Dict]:
         return []
 
 
-def get_recent_errors(hours: int = 24) -> List[Dict]:
-    """Get recent errors with user context"""
+def get_recent_errors(hours: int = None, limit: int = 500) -> List[Dict]:
+    """Get errors - all historical or filtered by hours
+    
+    Args:
+        hours: Optional - filter to last X hours. None = all errors
+        limit: Max errors to return (prevents lag with thousands)
+    """
     if not table_exists('error_logs'):
         return []
     
@@ -189,27 +194,43 @@ def get_recent_errors(hours: int = 24) -> List[Dict]:
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Get errors with user email if available
-        cur.execute("""
-            SELECT 
-                el.timestamp, 
-                el.api_key, 
-                el.error_type, 
-                el.error_message,
-                fu.email,
-                el.context
-            FROM error_logs el
-            LEFT JOIN follower_users fu ON el.api_key = fu.api_key
-            WHERE el.timestamp > NOW() - INTERVAL '%s hours'
-            ORDER BY el.timestamp DESC
-            LIMIT 100
-        """, (hours,))
+        # Build query based on whether we filter by time
+        if hours:
+            cur.execute("""
+                SELECT 
+                    el.timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Singapore' as timestamp_sgt,
+                    el.api_key, 
+                    el.error_type, 
+                    el.error_message,
+                    fu.email,
+                    el.context
+                FROM error_logs el
+                LEFT JOIN follower_users fu ON el.api_key = fu.api_key
+                WHERE el.timestamp > NOW() - INTERVAL '%s hours'
+                ORDER BY el.timestamp DESC
+                LIMIT %s
+            """, (hours, limit))
+        else:
+            # Get ALL errors (with reasonable limit)
+            cur.execute("""
+                SELECT 
+                    el.timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Singapore' as timestamp_sgt,
+                    el.api_key, 
+                    el.error_type, 
+                    el.error_message,
+                    fu.email,
+                    el.context
+                FROM error_logs el
+                LEFT JOIN follower_users fu ON el.api_key = fu.api_key
+                ORDER BY el.timestamp DESC
+                LIMIT %s
+            """, (limit,))
         
         errors = []
         for row in cur.fetchall():
-            timestamp, api_key, error_type, error_message, email, context = row
+            timestamp_sgt, api_key, error_type, error_message, email, context = row
             errors.append({
-                'timestamp': timestamp,
+                'timestamp': timestamp_sgt,
                 'api_key': api_key,
                 'error_type': error_type or 'Unknown',
                 'error_message': error_message or '',
@@ -460,7 +481,7 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
                     <td>${pos['entry']:.2f}</td>
                     <td><span style="color: #10b981">${pos['tp']:.2f}</span></td>
                     <td><span style="color: #ef4444">${pos['sl']:.2f}</span></td>
-                    <td>{pos['opened_at'].strftime('%Y-%m-%d %H:%M') if pos['opened_at'] else 'N/A'}</td>
+                    <td>{(pos['opened_at'] + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M') + ' SGT' if pos['opened_at'] else 'N/A'}</td>
                     <td style="color: #f59e0b;">{pos['reason']}</td>
                     <td>
                         <a href="#" onclick="deletePosition({pos['id']}); return false;" style="color: #ef4444; text-decoration: none;">🗑️ Delete</a>
@@ -509,7 +530,7 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
     # Error items with detailed view
     error_items = ""
     if not errors:
-        error_items = "<div style='text-align: center; padding: 40px; color: #9ca3af;'>No errors in last 24h 🎉</div>"
+        error_items = "<div style='text-align: center; padding: 40px; color: #9ca3af;'>No errors recorded 🎉</div>"
     else:
         for error in errors:
             # Determine error severity color
@@ -545,19 +566,30 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
             # User email for display
             user_display = error.get('email', 'Unknown User')
             
+            # Format timestamp for Singapore timezone
+            timestamp = error.get('timestamp', '')
+            if timestamp:
+                try:
+                    timestamp_str = timestamp.strftime('%Y-%m-%d %H:%M:%S') + ' SGT'
+                except:
+                    timestamp_str = str(timestamp)
+            else:
+                timestamp_str = 'N/A'
+            
             error_items += f"""
             <div class="error-item" 
                  style="border-left-color: {border_color};" 
                  data-error-type="{error_category}"
                  data-user="{user_display.lower()}"
                  data-message="{error_msg.lower()}"
-                 data-error-category="{error_type.lower()}">
+                 data-error-category="{error_type.lower()}"
+                 data-timestamp="{timestamp_str}">
                 <div class="error-header">
                     <div style="display: flex; gap: 10px; align-items: center;">
                         <span class="error-type {badge_class}">{error.get('error_type', 'Unknown')}</span>
                         <span style="color: #60a5fa; font-size: 12px;">👤 {user_display}</span>
                     </div>
-                    <span class="error-timestamp">{error.get('timestamp', '')}</span>
+                    <span class="error-timestamp">{timestamp_str}</span>
                 </div>
                 <div class="error-message">{error_msg}</div>
                 <div class="error-context">API Key: {error.get('api_key', 'N/A')[:15]}...</div>
@@ -1022,7 +1054,7 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
         <div class="header">
             <div>
                 <h1>🚀 $NIKEPIG Admin Dashboard</h1>
-                <div class="timestamp">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</div>
+                <div class="timestamp">{(datetime.utcnow() + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S')} SGT (GMT+8)</div>
             </div>
             <button class="refresh-btn" onclick="location.reload()">
                 🔄 Refresh
@@ -1145,7 +1177,7 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
         
         <div class="errors-section">
             <div class="errors-header">
-                <h2>⚠️ Recent Errors (24h)</h2>
+                <h2>⚠️ Error History (SGT / GMT+8)</h2>
                 <div class="error-legend">
                     <div class="legend-item"><span class="legend-dot critical"></span> Auth/Credential</div>
                     <div class="legend-item"><span class="legend-dot warning"></span> Network/Timeout</div>
@@ -1161,6 +1193,12 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
                     placeholder="🔍 Search errors by user, type, or message..."
                     onkeyup="filterErrors()"
                 />
+                <select id="errorTimeFilter" class="filter-select" onchange="filterErrors()">
+                    <option value="">All Time</option>
+                    <option value="24">Last 24 Hours</option>
+                    <option value="168">Last 7 Days</option>
+                    <option value="720">Last 30 Days</option>
+                </select>
                 <select id="errorTypeFilter" class="filter-select" onchange="filterErrors()">
                     <option value="">All Error Types</option>
                     <option value="auth">🔴 Auth/Credential</option>
@@ -1343,23 +1381,27 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
     function filterErrors() {{
         const searchInput = document.getElementById('errorSearch').value.toLowerCase();
         const typeFilter = document.getElementById('errorTypeFilter').value;
+        const timeFilter = document.getElementById('errorTimeFilter').value;
         const errorItems = document.querySelectorAll('.error-item');
         
-        console.log('Filter triggered:', {{ searchInput, typeFilter, itemCount: errorItems.length }});
+        console.log('Filter triggered:', {{ searchInput, typeFilter, timeFilter, itemCount: errorItems.length }});
         
         let visibleCount = 0;
         let totalErrors = errorItems.length;
+        
+        // Calculate time cutoff if time filter is set
+        let cutoffTime = null;
+        if (timeFilter) {{
+            const hoursAgo = parseInt(timeFilter);
+            cutoffTime = new Date(Date.now() - (hoursAgo * 60 * 60 * 1000));
+        }}
         
         errorItems.forEach(item => {{
             const user = (item.getAttribute('data-user') || '').toLowerCase();
             const message = (item.getAttribute('data-message') || '').toLowerCase();
             const category = (item.getAttribute('data-error-category') || '').toLowerCase();
             const errorType = (item.getAttribute('data-error-type') || '').toLowerCase();
-            
-            // Debug: log first item's attributes
-            if (visibleCount === 0) {{
-                console.log('Sample item attributes:', {{ user, message, category, errorType }});
-            }}
+            const timestamp = item.getAttribute('data-timestamp') || '';
             
             // Check search text match (search in user, message, and category)
             const searchMatch = !searchInput || 
@@ -1370,8 +1412,18 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
             // Check type filter match
             const typeMatch = !typeFilter || errorType === typeFilter;
             
-            // Show/hide based on both filters
-            if (searchMatch && typeMatch) {{
+            // Check time filter match
+            let timeMatch = true;
+            if (cutoffTime && timestamp) {{
+                // Parse timestamp like "2025-11-25 19:54:22 SGT"
+                const tsWithoutTZ = timestamp.replace(' SGT', '');
+                const itemTime = new Date(tsWithoutTZ);
+                // Adjust for SGT (add 8 hours to compare with local)
+                timeMatch = itemTime >= cutoffTime;
+            }}
+            
+            // Show/hide based on all filters
+            if (searchMatch && typeMatch && timeMatch) {{
                 item.classList.remove('hidden');
                 visibleCount++;
             }} else {{
@@ -1383,7 +1435,7 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
         
         // Update count display
         const countDisplay = document.getElementById('errorCount');
-        if (searchInput || typeFilter) {{
+        if (searchInput || typeFilter || timeFilter) {{
             countDisplay.textContent = `Showing ${{visibleCount}} of ${{totalErrors}} errors`;
             countDisplay.style.display = 'block';
         }} else {{
@@ -1398,6 +1450,7 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
     function clearErrorFilters() {{
         document.getElementById('errorSearch').value = '';
         document.getElementById('errorTypeFilter').value = '';
+        document.getElementById('errorTimeFilter').value = '';
         
         // Remove all hidden classes
         const errorItems = document.querySelectorAll('.error-item');
