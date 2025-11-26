@@ -254,7 +254,7 @@ async def admin_dashboard(password: str = ""):
     # Get dashboard data
     try:
         users = get_all_users_with_status()
-        errors = get_recent_errors(hours=24)
+        errors = get_recent_errors(hours=None, limit=500)  # Get all errors, paginated
         stats = get_stats_summary()
         positions_review = get_positions_needing_review()
         
