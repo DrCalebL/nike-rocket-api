@@ -512,19 +512,6 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
                 <tbody>{review_rows}</tbody>
             </table>
         </div>
-        
-        <script>
-        function deletePosition(posId) {{
-            if (confirm('Delete this position from review? This action cannot be undone.')) {{
-                fetch('/admin/delete-review-position/' + posId, {{
-                    method: 'DELETE',
-                    headers: {{'X-Admin-Key': '{ADMIN_PASSWORD}'}}
-                }})
-                .then(() => location.reload())
-                .catch(err => alert('Error: ' + err));
-            }}
-        }}
-        </script>
         """
     
     # Error items with detailed view
@@ -1545,8 +1532,22 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
                 method: 'DELETE',
                 headers: {{'X-Admin-Key': '{ADMIN_PASSWORD}'}}
             }})
-            .then(() => location.reload())
-            .catch(err => alert('Error: ' + err));
+            .then(response => {{
+                if (!response.ok) {{
+                    return response.json().then(data => {{
+                        throw new Error(data.detail || 'Delete failed');
+                    }});
+                }}
+                return response.json();
+            }})
+            .then(data => {{
+                console.log('Delete successful:', data);
+                location.reload();
+            }})
+            .catch(err => {{
+                console.error('Delete error:', err);
+                alert('Error deleting position: ' + err.message);
+            }});
         }}
     }}
     </script>
