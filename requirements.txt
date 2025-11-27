@@ -30,3 +30,5 @@ cryptography==41.0.7
 asyncpg==0.29.0
 
 ccxt==4.5.20
+
+slowapi==0.1.9
