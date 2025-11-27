@@ -33,7 +33,7 @@ from cryptography.fernet import Fernet
 
 # Configuration
 CHECK_INTERVAL_SECONDS = 60  # Check every minute
-FEE_PERCENTAGE = 0.10  # 10% of profits
+# Fee rates are per-user based on tier: team=0%, vip=5%, standard=10%
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -235,8 +235,24 @@ class PositionMonitor:
             
             profit_percent = (profit_usd / (entry_price * quantity)) * 100 if entry_price > 0 else 0
             
-            # Calculate fee (10% of profit, only if profitable)
-            fee_charged = max(0, profit_usd * FEE_PERCENTAGE)
+            # Get user's fee tier
+            async with self.db_pool.acquire() as conn:
+                user_row = await conn.fetchrow(
+                    "SELECT fee_tier FROM follower_users WHERE id = $1",
+                    int(position['user_id'])
+                )
+            
+            # Calculate fee based on user tier
+            fee_tier = user_row['fee_tier'] if user_row and user_row['fee_tier'] else 'standard'
+            tier_rates = {
+                'team': 0.00,      # 0% for team members
+                'vip': 0.05,       # 5% for VIPs
+                'standard': 0.10,  # 10% for typical customers
+            }
+            fee_percentage = tier_rates.get(fee_tier, 0.10)
+            
+            # Calculate fee (based on tier, only if profitable)
+            fee_charged = max(0, profit_usd * fee_percentage)
             
             # Generate trade ID
             trade_id = f"trade_{secrets.token_urlsafe(12)}"
@@ -294,7 +310,9 @@ class PositionMonitor:
             self.logger.info(f"   Entry: ${entry_price:.2f} → Exit: ${exit_price:.2f}")
             self.logger.info(f"   P&L: ${profit_usd:+.2f} ({profit_percent:+.2f}%)")
             if fee_charged > 0:
-                self.logger.info(f"   Fee: ${fee_charged:.2f} (10% of profit)")
+                self.logger.info(f"   Fee: ${fee_charged:.2f} ({int(fee_percentage*100)}% - {fee_tier} tier)")
+            elif fee_tier == 'team':
+                self.logger.info(f"   Fee: $0.00 (team member - 0%)")
             
             return True
             
@@ -422,7 +440,7 @@ class PositionMonitor:
         self.logger.info("📊 POSITION MONITOR STARTED")
         self.logger.info("=" * 60)
         self.logger.info(f"🔄 Check interval: {CHECK_INTERVAL_SECONDS} seconds")
-        self.logger.info(f"💰 Fee percentage: {FEE_PERCENTAGE*100:.0f}% of profits")
+        self.logger.info(f"💰 Fee tiers: Team=0%, VIP=5%, Standard=10%")
         self.logger.info("=" * 60)
         
         check_count = 0
