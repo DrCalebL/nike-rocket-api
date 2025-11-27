@@ -29,7 +29,7 @@ import logging
 import os
 import secrets
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 import ccxt
@@ -121,9 +121,11 @@ class PositionMonitor:
                 if fill.get('timestamp'):
                     ts = fill['timestamp']
                     if isinstance(ts, (int, float)):
-                        fill_timestamp = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+                        # Convert to naive datetime (PostgreSQL TIMESTAMP without timezone)
+                        fill_timestamp = datetime.utcfromtimestamp(ts / 1000)
                     elif isinstance(ts, datetime):
-                        fill_timestamp = ts
+                        # Strip timezone if present
+                        fill_timestamp = ts.replace(tzinfo=None) if ts.tzinfo else ts
                 
                 # Record the fill
                 await conn.execute("""
@@ -362,8 +364,7 @@ class PositionMonitor:
                     kraken_api_secret_encrypted,
                     fee_tier
                 FROM follower_users
-                WHERE is_active = true
-                  AND kraken_api_key_encrypted IS NOT NULL
+                WHERE kraken_api_key_encrypted IS NOT NULL
             """)
             return [dict(row) for row in rows]
     
@@ -670,7 +671,7 @@ class PositionMonitor:
                 self.logger.info(f"🛑 {user_short}: SL HIT on {position['symbol']} @ ${exit_price:.4f}")
             
             # Record the trade closure
-            await self.record_trade_close(position, exit_price, exit_type, datetime.now(timezone.utc))
+            await self.record_trade_close(position, exit_price, exit_type, datetime.utcnow())
             
             # Cancel remaining order
             try:
