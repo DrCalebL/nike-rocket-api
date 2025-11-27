@@ -1724,6 +1724,85 @@ async def portfolio_dashboard(request: Request):
                     </div>
                 </div>
             </div>
+            
+            <!-- Trade Export Section (NEW!) -->
+            <div class="trade-export" style="
+                background: white;
+                border-radius: 12px;
+                padding: 30px;
+                margin-top: 30px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            ">
+                <h2 style="margin: 0 0 20px 0; color: #667eea; font-size: 24px;">
+                    📊 Export Trade History
+                </h2>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <!-- Monthly Export -->
+                    <div style="background: #f9fafb; padding: 20px; border-radius: 8px;">
+                        <h3 style="margin: 0 0 15px 0; color: #374151; font-size: 18px;">📅 Monthly Report</h3>
+                        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                            <select id="export-month" style="flex: 1; padding: 10px; border: 2px solid #e5e7eb; border-radius: 6px; font-size: 14px;">
+                                <option value="01">January</option>
+                                <option value="02">February</option>
+                                <option value="03">March</option>
+                                <option value="04">April</option>
+                                <option value="05">May</option>
+                                <option value="06">June</option>
+                                <option value="07">July</option>
+                                <option value="08">August</option>
+                                <option value="09">September</option>
+                                <option value="10">October</option>
+                                <option value="11">November</option>
+                                <option value="12">December</option>
+                            </select>
+                            <select id="export-month-year" style="width: 100px; padding: 10px; border: 2px solid #e5e7eb; border-radius: 6px; font-size: 14px;">
+                            </select>
+                        </div>
+                        <button onclick="downloadMonthlyTrades()" style="
+                            width: 100%;
+                            padding: 12px;
+                            background: #10b981;
+                            color: white;
+                            border: none;
+                            border-radius: 6px;
+                            font-size: 14px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            transition: all 0.1s ease;
+                        ">
+                            ⬇️ Download Monthly CSV
+                        </button>
+                    </div>
+                    
+                    <!-- Yearly Export -->
+                    <div style="background: #f9fafb; padding: 20px; border-radius: 8px;">
+                        <h3 style="margin: 0 0 15px 0; color: #374151; font-size: 18px;">📆 Yearly Report</h3>
+                        <div style="margin-bottom: 15px;">
+                            <select id="export-year" style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 6px; font-size: 14px;">
+                            </select>
+                        </div>
+                        <button onclick="downloadYearlyTrades()" style="
+                            width: 100%;
+                            padding: 12px;
+                            background: #3b82f6;
+                            color: white;
+                            border: none;
+                            border-radius: 6px;
+                            font-size: 14px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            transition: all 0.1s ease;
+                        ">
+                            ⬇️ Download Yearly CSV
+                        </button>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 15px; padding: 12px; background: #eff6ff; border-radius: 6px; font-size: 13px; color: #1e40af;">
+                    💡 CSV exports include: Date, Symbol, Side, Entry Price, Exit Price, Position Size, P&L, and Net P&L summary
+                </div>
+            </div>
         </div>
     </div>
     
@@ -1864,6 +1943,8 @@ async def portfolio_dashboard(request: Request):
                 if (data.status === 'success' || data.total_profit !== undefined) {{
                     // Portfolio initialized - show dashboard with data
                     showDashboard(data);
+                    // Initialize export controls
+                    initExportControls();
                     // Load balance summary and transactions
                     await loadBalanceSummary();
                     await loadTransactionHistory();
@@ -2890,6 +2971,43 @@ ROI: ${{roi}}`;
                 stopBtn.disabled = false;
                 stopBtn.textContent = '⏸️ Stop Agent';
             }}
+        }}
+        
+        // ═══════════════════════════════════════════════════════════════
+        // Trade Export Functions
+        // ═══════════════════════════════════════════════════════════════
+        
+        function initExportControls() {{
+            // Populate year dropdowns
+            const currentYear = new Date().getFullYear();
+            const currentMonth = new Date().getMonth() + 1;
+            
+            const monthYearSelect = document.getElementById('export-month-year');
+            const yearSelect = document.getElementById('export-year');
+            
+            // Add years (current and past 2 years)
+            for (let y = currentYear; y >= currentYear - 2; y--) {{
+                monthYearSelect.innerHTML += `<option value="${{y}}">${{y}}</option>`;
+                yearSelect.innerHTML += `<option value="${{y}}">${{y}}</option>`;
+            }}
+            
+            // Set current month
+            document.getElementById('export-month').value = String(currentMonth).padStart(2, '0');
+        }}
+        
+        function downloadMonthlyTrades() {{
+            const month = document.getElementById('export-month').value;
+            const year = document.getElementById('export-month-year').value;
+            
+            const url = `/api/portfolio/trades/monthly-csv?key=${{currentApiKey}}&year=${{year}}&month=${{month}}`;
+            window.location.href = url;
+        }}
+        
+        function downloadYearlyTrades() {{
+            const year = document.getElementById('export-year').value;
+            
+            const url = `/api/portfolio/trades/yearly-csv?key=${{currentApiKey}}&year=${{year}}`;
+            window.location.href = url;
         }}
         
         function showError(elementId, message) {{
