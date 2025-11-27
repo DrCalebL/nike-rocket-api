@@ -2,6 +2,9 @@
 Admin Dashboard - SCHEMA-AGNOSTIC VERSION
 ==========================================
 Works with ANY database schema by detecting columns dynamically
+
+UPDATED: Now reads initial_capital and last_known_balance from follower_users
+(consolidated schema) with fallback to portfolio_users for backwards compatibility.
 """
 
 import os
@@ -120,22 +123,43 @@ def get_all_users_with_status() -> List[Dict]:
         return []
     
     try:
-        # Get all users from follower_users with portfolio data
-        cur.execute("""
-            SELECT 
-                fu.email,
-                fu.api_key,
-                fu.credentials_set,
-                fu.agent_active,
-                fu.total_profit,
-                fu.total_trades,
-                fu.created_at,
-                COALESCE(pu.initial_capital, 0) as initial_capital,
-                COALESCE(pu.last_known_balance, 0) as current_balance
-            FROM follower_users fu
-            LEFT JOIN portfolio_users pu ON fu.api_key = pu.api_key
-            ORDER BY fu.id DESC
-        """)
+        # Check if follower_users has consolidated columns (initial_capital, last_known_balance)
+        fu_columns = get_table_columns('follower_users')
+        has_consolidated = 'initial_capital' in fu_columns and 'last_known_balance' in fu_columns
+        
+        if has_consolidated:
+            # NEW: Read directly from follower_users (consolidated schema)
+            cur.execute("""
+                SELECT 
+                    fu.email,
+                    fu.api_key,
+                    fu.credentials_set,
+                    fu.agent_active,
+                    fu.total_profit,
+                    fu.total_trades,
+                    fu.created_at,
+                    COALESCE(fu.initial_capital, 0) as initial_capital,
+                    COALESCE(fu.last_known_balance, 0) as current_balance
+                FROM follower_users fu
+                ORDER BY fu.id DESC
+            """)
+        else:
+            # FALLBACK: Join with portfolio_users (legacy schema)
+            cur.execute("""
+                SELECT 
+                    fu.email,
+                    fu.api_key,
+                    fu.credentials_set,
+                    fu.agent_active,
+                    fu.total_profit,
+                    fu.total_trades,
+                    fu.created_at,
+                    COALESCE(pu.initial_capital, 0) as initial_capital,
+                    COALESCE(pu.last_known_balance, 0) as current_balance
+                FROM follower_users fu
+                LEFT JOIN portfolio_users pu ON fu.api_key = pu.api_key
+                ORDER BY fu.id DESC
+            """)
         
         users = []
         for row in cur.fetchall():
@@ -325,7 +349,7 @@ def get_positions_needing_review() -> List[Dict]:
 
 
 def get_stats_summary() -> Dict:
-    """Get summary statistics from follower_users and portfolio_users"""
+    """Get summary statistics from follower_users (consolidated schema)"""
     conn = get_db_connection()
     cur = conn.cursor()
     
@@ -354,10 +378,30 @@ def get_stats_summary() -> Dict:
         except Exception as e:
             print(f"Error getting follower_users stats: {e}")
     
-    # Get platform capital from portfolio_users
+    # Get platform capital - try follower_users first (consolidated), then portfolio_users (legacy)
     platform_capital = 0.0
     current_value = 0.0
-    if table_exists('portfolio_users'):
+    
+    fu_columns = get_table_columns('follower_users') if table_exists('follower_users') else []
+    has_consolidated = 'initial_capital' in fu_columns and 'last_known_balance' in fu_columns
+    
+    if has_consolidated:
+        # NEW: Query follower_users directly (consolidated schema)
+        try:
+            cur.execute("""
+                SELECT 
+                    COALESCE(SUM(initial_capital), 0),
+                    COALESCE(SUM(last_known_balance), 0)
+                FROM follower_users
+                WHERE portfolio_initialized = true
+            """)
+            row = cur.fetchone()
+            platform_capital = float(row[0]) if row else 0.0
+            current_value = float(row[1]) if row else 0.0
+        except Exception as e:
+            print(f"Error getting consolidated portfolio stats: {e}")
+    elif table_exists('portfolio_users'):
+        # FALLBACK: Query portfolio_users (legacy schema)
         try:
             cur.execute("""
                 SELECT 
