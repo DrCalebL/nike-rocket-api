@@ -1,39 +1,43 @@
 """
-Nike Rocket Position Monitor
-=============================
+Nike Rocket Position Monitor v2
+================================
 
-Monitors open positions for TP/SL fills and records actual P&L.
+REFACTORED: Position-based tracking instead of individual fills
+
+Key changes from v1:
+- Records fills to position_fills table (audit trail)
+- Aggregates fills into positions with weighted avg entry
+- Creates ONE trade record when position closes (not per-fill)
 
 This ensures:
-- Accurate profit tracking (uses real fill prices, not signals)
-- Fair billing (users only pay on actual profits)
-- Dashboard accuracy (shows real trading results)
+- Dashboard shows "1 position" not "10 trades"
+- Accurate weighted-average entry price
+- Clean P&L calculation on close
+- Better stats that reflect actual round-trip performance
 
 Flow:
-1. Hosted trading loop places orders → saves to open_positions table
-2. Position monitor runs every 60 seconds
-3. Checks each open position against Kraken
-4. When TP or SL fills → calculates real P&L → records in trades table
-5. Updates user statistics
-6. Removes from open_positions
+1. Scan exchange history → record_fill() for each execution
+2. sync_user_position() aggregates fills by symbol → open_positions
+3. When position closes → calculate final P&L → ONE trade record
 
 Author: Nike Rocket Team
-Created: November 24, 2025
+Version: 2.0 (Position-based)
 """
 
 import asyncio
 import logging
 import os
 import secrets
-from datetime import datetime
-from typing import Optional, Dict, Any
+import time
+from datetime import datetime, timezone
+from typing import Optional, Dict, Any, List
 
 import ccxt
 from cryptography.fernet import Fernet
 
 # Configuration
-CHECK_INTERVAL_SECONDS = 60  # Check every minute
-# Fee rates are per-user based on tier: team=0%, vip=5%, standard=10%
+CHECK_INTERVAL_SECONDS = 60
+FILL_LOOKBACK_HOURS = 24  # How far back to look for fills
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -46,13 +50,17 @@ cipher = Fernet(ENCRYPTION_KEY.encode()) if ENCRYPTION_KEY else None
 
 class PositionMonitor:
     """
-    Monitors open positions and records actual P&L when they close.
+    Monitors positions and records actual P&L when they close.
+    
+    v2: Position-based tracking with fill aggregation
     """
     
     def __init__(self, db_pool):
         self.db_pool = db_pool
         self.logger = logger
         self.active_exchanges: Dict[str, ccxt.krakenfutures] = {}
+    
+    # ==================== Credential & Exchange Management ====================
     
     def decrypt_credentials(self, encrypted_key: str, encrypted_secret: str):
         """Decrypt Kraken API credentials"""
@@ -82,6 +90,283 @@ class PositionMonitor:
             self.logger.error(f"Failed to create exchange: {e}")
             return None
     
+    # ==================== Fill Recording (Audit Trail) ====================
+    
+    async def record_fill(self, user_id: int, fill: dict) -> bool:
+        """
+        Record a single execution fill to position_fills table.
+        
+        This is the audit trail - every execution from the exchange.
+        Returns True if new fill was recorded, False if duplicate.
+        """
+        try:
+            order_id = fill.get('order_id') or fill.get('order')
+            # Generate fill_id: use exchange's id, or create from order+timestamp
+            fill_id = fill.get('id') or fill.get('fill_id')
+            if not fill_id:
+                fill_id = f"{order_id}_{fill.get('timestamp', int(time.time() * 1000))}"
+            
+            async with self.db_pool.acquire() as conn:
+                # Check if already recorded by fill_id
+                existing = await conn.fetchval("""
+                    SELECT id FROM position_fills 
+                    WHERE user_id = $1 AND fill_id = $2
+                """, user_id, fill_id)
+                
+                if existing:
+                    return False  # Already recorded
+                
+                # Parse timestamp
+                fill_timestamp = None
+                if fill.get('timestamp'):
+                    ts = fill['timestamp']
+                    if isinstance(ts, (int, float)):
+                        fill_timestamp = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+                    elif isinstance(ts, datetime):
+                        fill_timestamp = ts
+                
+                # Record the fill
+                await conn.execute("""
+                    INSERT INTO position_fills 
+                    (user_id, kraken_order_id, fill_id, symbol, side, price, quantity, cost, fill_timestamp, source)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    ON CONFLICT (user_id, fill_id) DO NOTHING
+                """,
+                    user_id,
+                    order_id,
+                    fill_id,
+                    fill.get('symbol', 'UNKNOWN'),
+                    fill.get('side', 'UNKNOWN'),
+                    float(fill.get('price', 0)),
+                    float(fill.get('amount', 0) or fill.get('quantity', 0)),
+                    float(fill.get('cost', 0) or (fill.get('price', 0) * fill.get('amount', 0))),
+                    fill_timestamp,
+                    'exchange_api'
+                )
+                
+                self.logger.info(f"   📝 Fill recorded: {fill.get('symbol')} {fill.get('side')} {fill.get('amount')} @ ${fill.get('price', 0):.4f}")
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"   Failed to record fill: {e}")
+            return False
+    
+    # ==================== Position Aggregation ====================
+    
+    async def get_aggregated_position(self, user_id: int, symbol: str) -> dict:
+        """
+        Calculate aggregated position from all unassigned fills.
+        
+        Returns:
+            {
+                'net_side': 'long' or 'short',
+                'net_quantity': float,
+                'avg_entry_price': float,
+                'total_cost': float,
+                'fill_count': int,
+                'first_fill': datetime,
+                'last_fill': datetime
+            }
+        """
+        async with self.db_pool.acquire() as conn:
+            result = await conn.fetchrow("""
+                SELECT 
+                    SUM(CASE WHEN side = 'buy' THEN quantity ELSE 0 END) as buy_qty,
+                    SUM(CASE WHEN side = 'buy' THEN cost ELSE 0 END) as buy_cost,
+                    SUM(CASE WHEN side = 'sell' THEN quantity ELSE 0 END) as sell_qty,
+                    SUM(CASE WHEN side = 'sell' THEN cost ELSE 0 END) as sell_cost,
+                    COUNT(*) as fill_count,
+                    MIN(fill_timestamp) as first_fill,
+                    MAX(fill_timestamp) as last_fill
+                FROM position_fills
+                WHERE user_id = $1 AND symbol = $2 AND position_id IS NULL
+            """, user_id, symbol)
+            
+            if not result or result['fill_count'] == 0:
+                return None
+            
+            buy_qty = float(result['buy_qty'] or 0)
+            buy_cost = float(result['buy_cost'] or 0)
+            sell_qty = float(result['sell_qty'] or 0)
+            sell_cost = float(result['sell_cost'] or 0)
+            
+            # Calculate net position
+            if sell_qty > buy_qty:
+                net_side = 'short'
+                net_quantity = sell_qty - buy_qty
+                # For short: we sold high, cost basis is sell_cost - buy_cost
+                total_cost = sell_cost - buy_cost
+            else:
+                net_side = 'long'
+                net_quantity = buy_qty - sell_qty
+                # For long: we bought low, cost basis is buy_cost - sell_cost
+                total_cost = buy_cost - sell_cost
+            
+            # Weighted average entry
+            if net_quantity > 0:
+                avg_entry = abs(total_cost) / net_quantity
+            else:
+                avg_entry = 0
+            
+            return {
+                'net_side': net_side,
+                'net_quantity': net_quantity,
+                'avg_entry_price': avg_entry,
+                'total_cost': total_cost,
+                'fill_count': result['fill_count'],
+                'first_fill': result['first_fill'],
+                'last_fill': result['last_fill']
+            }
+    
+    async def sync_user_position(self, user_id: int, symbol: str, current_exchange_qty: float = None):
+        """
+        Sync fills into an aggregated position record.
+        
+        Creates or updates open_positions with aggregated data from fills.
+        """
+        try:
+            agg = await self.get_aggregated_position(user_id, symbol)
+            
+            if not agg or agg['net_quantity'] <= 0:
+                return  # No position
+            
+            async with self.db_pool.acquire() as conn:
+                # Check if we already have an open position for this symbol
+                existing = await conn.fetchrow("""
+                    SELECT id, filled_quantity, avg_entry_price, fill_count
+                    FROM open_positions 
+                    WHERE user_id = $1 AND symbol = $2 AND status = 'open'
+                """, user_id, symbol)
+                
+                if existing:
+                    # Update existing position with new aggregate data
+                    if (existing['filled_quantity'] != agg['net_quantity'] or 
+                        existing['fill_count'] != agg['fill_count']):
+                        
+                        await conn.execute("""
+                            UPDATE open_positions SET
+                                avg_entry_price = $1,
+                                filled_quantity = $2,
+                                fill_count = $3,
+                                total_cost_basis = $4,
+                                last_fill_at = $5,
+                                side = $6
+                            WHERE id = $7
+                        """,
+                            agg['avg_entry_price'],
+                            agg['net_quantity'],
+                            agg['fill_count'],
+                            abs(agg['total_cost']),
+                            agg['last_fill'],
+                            agg['net_side'],
+                            existing['id']
+                        )
+                        
+                        self.logger.info(
+                            f"   📊 Position updated: {symbol} {agg['net_side']} "
+                            f"{agg['net_quantity']:.2f} @ ${agg['avg_entry_price']:.4f} "
+                            f"({agg['fill_count']} fills)"
+                        )
+                else:
+                    # No existing position - this is fill-only tracking
+                    # We'll just log it for now; proper positions are created by trading loop
+                    self.logger.info(
+                        f"   📊 Aggregated fills: {symbol} {agg['net_side']} "
+                        f"{agg['net_quantity']:.2f} @ ${agg['avg_entry_price']:.4f} "
+                        f"({agg['fill_count']} fills, no open_positions record)"
+                    )
+                    
+        except Exception as e:
+            self.logger.error(f"Error syncing position: {e}")
+    
+    # ==================== Exchange History Scanning ====================
+    
+    async def scan_exchange_fills(self, user_info: dict) -> List[dict]:
+        """
+        Scan exchange for recent fills and record any new ones.
+        
+        Returns list of newly recorded fills.
+        """
+        user_short = user_info['api_key'][:15] + "..."
+        
+        try:
+            kraken_key, kraken_secret = self.decrypt_credentials(
+                user_info['kraken_api_key_encrypted'],
+                user_info['kraken_api_secret_encrypted']
+            )
+            
+            if not kraken_key:
+                return []
+            
+            exchange = self.get_exchange(user_info['api_key'], kraken_key, kraken_secret)
+            if not exchange:
+                return []
+            
+            # Fetch recent trades from Kraken
+            trades = exchange.fetch_my_trades(limit=100)
+            
+            if not trades:
+                return []
+            
+            new_fills = []
+            symbols_affected = set()
+            
+            for trade in trades:
+                # Check if recent (within lookback period)
+                trade_timestamp = trade.get('timestamp', 0)
+                if isinstance(trade_timestamp, (int, float)):
+                    trade_age_hours = (time.time() * 1000 - trade_timestamp) / (1000 * 3600)
+                    if trade_age_hours > FILL_LOOKBACK_HOURS:
+                        continue
+                
+                # Record the fill
+                fill_data = {
+                    'order_id': trade.get('order'),
+                    'id': trade.get('id'),
+                    'symbol': trade.get('symbol'),
+                    'side': trade.get('side'),
+                    'price': trade.get('price'),
+                    'amount': trade.get('amount'),
+                    'cost': trade.get('cost'),
+                    'timestamp': trade_timestamp,
+                }
+                
+                was_new = await self.record_fill(user_info['id'], fill_data)
+                if was_new:
+                    new_fills.append(fill_data)
+                    symbols_affected.add(trade.get('symbol'))
+            
+            # Sync positions for affected symbols
+            for symbol in symbols_affected:
+                await self.sync_user_position(user_info['id'], symbol)
+            
+            if new_fills:
+                self.logger.info(f"⚡ {user_short}: Recorded {len(new_fills)} new fills")
+            
+            return new_fills
+            
+        except Exception as e:
+            self.logger.debug(f"Could not scan fills for {user_short}: {e}")
+            return []
+    
+    # ==================== Position Monitoring ====================
+    
+    async def get_active_users(self) -> list:
+        """Get all active users with Kraken credentials"""
+        async with self.db_pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT 
+                    id,
+                    api_key,
+                    kraken_api_key_encrypted,
+                    kraken_api_secret_encrypted,
+                    fee_tier
+                FROM follower_users
+                WHERE is_active = true
+                  AND kraken_api_key_encrypted IS NOT NULL
+            """)
+            return [dict(row) for row in rows]
+    
     async def get_open_positions(self) -> list:
         """Fetch all open positions from database"""
         async with self.db_pool.acquire() as conn:
@@ -99,99 +384,83 @@ class PositionMonitor:
                     op.quantity,
                     op.leverage,
                     op.entry_fill_price,
+                    op.avg_entry_price,
+                    op.filled_quantity,
+                    op.fill_count,
+                    op.total_cost_basis,
                     op.target_tp,
                     op.target_sl,
                     op.opened_at,
+                    op.first_fill_at,
+                    op.last_fill_at,
                     u.api_key as user_api_key,
                     u.kraken_api_key_encrypted,
-                    u.kraken_api_secret_encrypted
+                    u.kraken_api_secret_encrypted,
+                    u.fee_tier
                 FROM open_positions op
                 JOIN follower_users u ON op.user_id = u.id
                 WHERE op.status = 'open'
             """)
             return [dict(row) for row in rows]
     
-    async def check_order_status(self, exchange: ccxt.krakenfutures, order_id: str, symbol: str) -> Dict[str, Any]:
-        """Check if an order has filled - NOT USED for Kraken Futures"""
-        # Kraken Futures doesn't support fetchOrder, use check_position_closed instead
-        return {'status': 'unknown', 'error': 'Use check_position_closed instead'}
-    
     async def check_position_closed(self, exchange: ccxt.krakenfutures, kraken_symbol: str, side: str, quantity: float, tp_order_id: str, sl_order_id: str) -> Dict[str, Any]:
         """
         Check if position is still open on Kraken.
-        Uses multiple verification methods to avoid false positives.
         
         Returns:
             - {'closed': False} if position still exists
-            - {'closed': True, 'exit_price': price, 'exit_type': 'TP'/'SL'} if position closed
+            - {'closed': True, 'exit_price': price, 'exit_type': 'TP'/'SL'} if closed
         """
         try:
-            # Method 1: Check open positions (without symbol filter - more reliable)
             positions = exchange.fetch_positions()
             
-            # Debug: Log raw response
             self.logger.info(f"🔍 Kraken positions API returned {len(positions)} items")
             
-            # Debug: Log what Kraken returns
             if positions:
                 for i, pos in enumerate(positions):
                     pos_symbol = pos.get('symbol', 'Unknown')
                     pos_contracts = pos.get('contracts') or pos.get('contractSize') or 0
                     pos_side = pos.get('side', 'Unknown')
-                    pos_info = pos.get('info', {})
                     
-                    # Log raw position data for debugging
                     self.logger.info(f"   Position {i}: symbol={pos_symbol}, contracts={pos_contracts}, side={pos_side}")
                     
-                    # Check if this position matches our symbol (flexible matching)
-                    # Kraken might return "PF_ADAUSD" or "ADA/USD:USD" or similar
-                    symbol_base = kraken_symbol.replace('PF_', '').replace('USD', '')  # e.g., "ADA"
+                    symbol_base = kraken_symbol.replace('PF_', '').replace('USD', '')
                     
                     if symbol_base in str(pos_symbol).upper():
                         contracts = abs(float(pos_contracts))
-                        
                         if contracts > 0:
-                            # Position still open
                             self.logger.info(f"✅ Position found: {pos_symbol} {pos_side} ({contracts} contracts)")
                             return {'closed': False, 'current_size': contracts}
             
-            # Also check for ANY position (single position model)
+            # Check for ANY position
             for pos in positions:
                 contracts = abs(float(pos.get('contracts') or pos.get('contractSize') or 0))
                 if contracts > 0:
                     self.logger.info(f"✅ Position found (any symbol): {pos.get('symbol')} ({contracts} contracts)")
                     return {'closed': False, 'current_size': contracts}
             
-            # If we get here, no position with contracts > 0 was found
             self.logger.info(f"📭 No open positions found in Kraken API response")
             
-            # No position found - verify by checking if TP or SL filled
-            # Check open orders - if both TP and SL still exist, position wasn't closed
+            # No position found - check which order filled
             try:
                 open_orders = exchange.fetch_open_orders(kraken_symbol)
                 tp_exists = any(o['id'] == tp_order_id for o in open_orders)
                 sl_exists = any(o['id'] == sl_order_id for o in open_orders)
                 
                 if tp_exists and sl_exists:
-                    # Both orders still exist but no position? Weird - keep monitoring
                     self.logger.warning(f"⚠️ No position but both TP/SL orders exist for {kraken_symbol}")
                     return {'closed': False, 'anomaly': True}
                 
-                # One order filled - determine which one
                 if not tp_exists and sl_exists:
-                    # TP filled, position closed
                     exit_type = 'TP'
                 elif tp_exists and not sl_exists:
-                    # SL filled, position closed
                     exit_type = 'SL'
                 else:
-                    # Both canceled? Might be manual close
                     self.logger.warning(f"⚠️ Both TP/SL canceled for {kraken_symbol} - manual close?")
                     return {'closed': False, 'manual_close': True}
-                
+                    
             except Exception as e:
                 self.logger.warning(f"Could not check open orders: {e}")
-                # Fall back to position check only
                 exit_type = 'UNKNOWN'
             
             # Get exit price from recent trades
@@ -199,105 +468,104 @@ class PositionMonitor:
             try:
                 trades = exchange.fetch_my_trades(kraken_symbol, limit=20)
                 if trades:
-                    # Find the closing trade (opposite side of entry)
-                    entry_side = side  # 'BUY' or 'SELL'
-                    exit_side = 'SELL' if entry_side == 'BUY' else 'BUY'
-                    
-                    # Get most recent exit trade
-                    exit_trades = [t for t in trades if t.get('side', '').upper() == exit_side]
-                    if exit_trades:
-                        latest = exit_trades[-1]
-                        exit_price = float(latest.get('price', 0))
+                    # Most recent trade is likely the exit
+                    trades.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+                    exit_price = float(trades[0].get('price', 0))
             except Exception as e:
-                self.logger.warning(f"Could not fetch trades for exit price: {e}")
+                self.logger.warning(f"Could not get exit price: {e}")
             
-            return {'closed': True, 'exit_price': exit_price, 'exit_type': exit_type}
+            return {
+                'closed': True,
+                'exit_price': exit_price,
+                'exit_type': exit_type
+            }
             
         except Exception as e:
             self.logger.error(f"Error checking position: {e}")
             return {'closed': False, 'error': str(e)}
     
-    async def record_trade(self, position: dict, exit_price: float, exit_type: str, closed_at: datetime):
-        """Record completed trade in database"""
+    async def record_trade_close(self, position: dict, exit_price: float, exit_type: str, closed_at: datetime):
+        """
+        Record a closed position as ONE trade with actual P&L.
+        
+        Uses aggregated position data (avg entry, total size) for accurate P&L.
+        """
         try:
+            # Use aggregated entry if available, otherwise fall back to single entry
+            entry_price = position.get('avg_entry_price') or position.get('entry_fill_price')
+            position_size = position.get('filled_quantity') or position.get('quantity')
+            fill_count = position.get('fill_count') or 1
+            leverage = position.get('leverage', 1)
+            side = position.get('side')
+            
+            if not entry_price or not position_size:
+                self.logger.error("Missing entry price or position size")
+                return False
+            
             # Calculate P&L
-            entry_price = float(position['entry_fill_price'])
-            quantity = float(position['quantity'])
-            side = str(position['side'])
+            if side == 'long':
+                profit_usd = (exit_price - entry_price) * position_size
+            else:  # short
+                profit_usd = (entry_price - exit_price) * position_size
             
-            # P&L calculation
-            if side == 'BUY':
-                # Long: profit = (exit - entry) * quantity
-                profit_usd = (exit_price - entry_price) * quantity
-            else:
-                # Short: profit = (entry - exit) * quantity
-                profit_usd = (entry_price - exit_price) * quantity
+            profit_percent = ((exit_price - entry_price) / entry_price) * 100
+            if side == 'short':
+                profit_percent = -profit_percent
             
-            profit_percent = (profit_usd / (entry_price * quantity)) * 100 if entry_price > 0 else 0
+            # Get fee tier
+            fee_tier = position.get('fee_tier', 'standard')
+            fee_rates = {'team': 0.0, 'vip': 0.05, 'standard': 0.10}
+            fee_percentage = fee_rates.get(fee_tier, 0.10)
             
-            # Get user's fee tier
-            async with self.db_pool.acquire() as conn:
-                user_row = await conn.fetchrow(
-                    "SELECT fee_tier FROM follower_users WHERE id = $1",
-                    int(position['user_id'])
-                )
-            
-            # Calculate fee based on user tier
-            fee_tier = user_row['fee_tier'] if user_row and user_row['fee_tier'] else 'standard'
-            tier_rates = {
-                'team': 0.00,      # 0% for team members
-                'vip': 0.05,       # 5% for VIPs
-                'standard': 0.10,  # 10% for typical customers
-            }
-            fee_percentage = tier_rates.get(fee_tier, 0.10)
-            
-            # Calculate fee (based on tier, only if profitable)
-            fee_charged = max(0, profit_usd * fee_percentage)
+            # Calculate fee (only on profits)
+            fee_charged = max(0, profit_usd * fee_percentage) if profit_usd > 0 else 0
             
             # Generate trade ID
             trade_id = f"trade_{secrets.token_urlsafe(12)}"
             
             async with self.db_pool.acquire() as conn:
-                # Insert trade record
-                # Note: signal_id in trades table might be nullable, handle None case
-                signal_id = position.get('signal_id')
-                
+                # Record the trade
                 await conn.execute("""
                     INSERT INTO trades 
-                    (user_id, trade_id, kraken_order_id,
-                     opened_at, closed_at, symbol, side,
-                     entry_price, exit_price, position_size, leverage,
-                     profit_usd, profit_percent, fee_charged, notes)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                    (user_id, signal_id, trade_id, kraken_order_id, opened_at, closed_at,
+                     symbol, side, entry_price, exit_price, position_size, leverage,
+                     profit_usd, profit_percent, exit_type, fee_charged, notes)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                 """,
-                    int(position['user_id']),
+                    position['user_id'],
+                    position.get('signal_id'),
                     trade_id,
-                    str(position['entry_order_id']),
-                    position['opened_at'],
+                    position.get('entry_order_id'),
+                    position.get('opened_at') or position.get('first_fill_at'),
                     closed_at,
-                    str(position['symbol']),
+                    position['symbol'],
                     side,
                     entry_price,
                     exit_price,
-                    quantity,
-                    float(position['leverage']),
+                    position_size,
+                    leverage,
                     profit_usd,
                     profit_percent,
+                    exit_type,
                     fee_charged,
-                    f"Closed by {exit_type}"
+                    f"Aggregated from {fill_count} fills. Avg entry: ${entry_price:.4f}"
                 )
                 
-                # Update user statistics
+                # Update user stats
                 await conn.execute("""
-                    UPDATE follower_users 
-                    SET 
-                        total_profit = total_profit + $1,
-                        total_trades = total_trades + 1,
-                        monthly_profit = monthly_profit + $1,
-                        monthly_trades = monthly_trades + 1,
-                        monthly_fee_due = monthly_fee_due + $2
+                    UPDATE follower_users SET 
+                        total_trades = COALESCE(total_trades, 0) + 1,
+                        total_profit = COALESCE(total_profit, 0) + $1,
+                        total_fees = COALESCE(total_fees, 0) + $2
                     WHERE id = $3
                 """, profit_usd, fee_charged, position['user_id'])
+                
+                # Mark fills as assigned to this position (audit trail)
+                await conn.execute("""
+                    UPDATE position_fills 
+                    SET position_id = $1
+                    WHERE user_id = $2 AND symbol = $3 AND position_id IS NULL
+                """, position['id'], position['user_id'], position['symbol'])
                 
                 # Mark position as closed
                 await conn.execute("""
@@ -306,18 +574,18 @@ class PositionMonitor:
             
             # Log result
             emoji = "🟢" if profit_usd >= 0 else "🔴"
-            self.logger.info(f"{emoji} Trade closed: {position['symbol']} {side}")
-            self.logger.info(f"   Entry: ${entry_price:.2f} → Exit: ${exit_price:.2f}")
+            self.logger.info(f"{emoji} Position closed: {position['symbol']} {side}")
+            self.logger.info(f"   Entry: ${entry_price:.4f} (avg from {fill_count} fills)")
+            self.logger.info(f"   Exit: ${exit_price:.4f} ({exit_type})")
+            self.logger.info(f"   Size: {position_size:.2f} contracts")
             self.logger.info(f"   P&L: ${profit_usd:+.2f} ({profit_percent:+.2f}%)")
             if fee_charged > 0:
-                self.logger.info(f"   Fee: ${fee_charged:.2f} ({int(fee_percentage*100)}% - {fee_tier} tier)")
-            elif fee_tier == 'team':
-                self.logger.info(f"   Fee: $0.00 (team member - 0%)")
+                self.logger.info(f"   Fee: ${fee_charged:.2f} ({int(fee_percentage*100)}% - {fee_tier})")
             
             return True
             
         except Exception as e:
-            self.logger.error(f"Error recording trade: {e}")
+            self.logger.error(f"Error recording trade close: {e}")
             import traceback
             traceback.print_exc()
             return False
@@ -327,7 +595,6 @@ class PositionMonitor:
         user_short = position['user_api_key'][:15] + "..."
         
         try:
-            # Decrypt credentials
             kraken_key, kraken_secret = self.decrypt_credentials(
                 position['kraken_api_key_encrypted'],
                 position['kraken_api_secret_encrypted']
@@ -337,30 +604,35 @@ class PositionMonitor:
                 self.logger.error(f"❌ {user_short}: Cannot decrypt credentials")
                 return
             
-            # Get exchange instance
             exchange = self.get_exchange(position['user_api_key'], kraken_key, kraken_secret)
             if not exchange:
                 return
             
+            # First scan for any new fills
+            user_info = {
+                'id': position['user_id'],
+                'api_key': position['user_api_key'],
+                'kraken_api_key_encrypted': position['kraken_api_key_encrypted'],
+                'kraken_api_secret_encrypted': position['kraken_api_secret_encrypted'],
+            }
+            await self.scan_exchange_fills(user_info)
+            
             kraken_symbol = position['kraken_symbol']
             
-            # Check if position is still open on Kraken
+            # Check if position is still open
             result = await self.check_position_closed(
                 exchange, 
                 kraken_symbol, 
                 position['side'], 
-                position['quantity'],
+                position.get('filled_quantity') or position['quantity'],
                 position['tp_order_id'],
                 position['sl_order_id']
             )
             
             if not result.get('closed'):
-                # Position still open, nothing to do
                 if result.get('anomaly'):
-                    self.logger.warning(f"⚠️ {user_short}: Anomaly detected - will continue monitoring")
+                    self.logger.warning(f"⚠️ {user_short}: Anomaly detected - continuing to monitor")
                 if result.get('manual_close'):
-                    # Both TP and SL canceled - might be manual close
-                    # Mark for review
                     async with self.db_pool.acquire() as conn:
                         await conn.execute(
                             "UPDATE open_positions SET status = 'needs_review' WHERE id = $1",
@@ -369,12 +641,11 @@ class PositionMonitor:
                     self.logger.warning(f"⚠️ {user_short}: Manual close detected - marked for review")
                 return
             
-            # Position closed! Get details
+            # Position closed
             exit_price = result.get('exit_price')
-            exit_type_detected = result.get('exit_type', 'UNKNOWN')
+            exit_type = result.get('exit_type', 'UNKNOWN')
             
             if exit_price is None:
-                # Couldn't get exit price, mark for manual review
                 self.logger.warning(f"⚠️ {user_short}: Could not get exit price - marked for review")
                 async with self.db_pool.acquire() as conn:
                     await conn.execute(
@@ -383,198 +654,66 @@ class PositionMonitor:
                     )
                 return
             
-            # Verify exit type by comparing to targets
-            entry = position['entry_fill_price']
+            # Verify exit type
+            entry = position.get('avg_entry_price') or position['entry_fill_price']
             tp = position['target_tp']
             sl = position['target_sl']
             
-            # Calculate distance to TP and SL
             dist_to_tp = abs(exit_price - tp)
             dist_to_sl = abs(exit_price - sl)
             
             if dist_to_tp < dist_to_sl:
                 exit_type = 'TP'
-                self.logger.info(f"🎯 {user_short}: TP HIT on {position['symbol']} @ ${exit_price:.2f}")
+                self.logger.info(f"🎯 {user_short}: TP HIT on {position['symbol']} @ ${exit_price:.4f}")
             else:
                 exit_type = 'SL'
-                self.logger.info(f"🛑 {user_short}: SL HIT on {position['symbol']} @ ${exit_price:.2f}")
+                self.logger.info(f"🛑 {user_short}: SL HIT on {position['symbol']} @ ${exit_price:.4f}")
             
-            # Cross-check with detected type
-            if exit_type_detected != 'UNKNOWN' and exit_type_detected != exit_type:
-                self.logger.warning(f"⚠️ Exit type mismatch: detected {exit_type_detected}, calculated {exit_type}")
+            # Record the trade closure
+            await self.record_trade_close(position, exit_price, exit_type, datetime.now(timezone.utc))
             
-            # Record the trade with actual P&L
-            await self.record_trade(position, exit_price, exit_type, datetime.now())
-            
-            # Cancel remaining order (TP or SL that didn't fill)
+            # Cancel remaining order
             try:
-                if exit_type == 'TP':
-                    exchange.cancel_order(position['sl_order_id'], kraken_symbol)
-                else:
-                    exchange.cancel_order(position['tp_order_id'], kraken_symbol)
-                self.logger.info(f"   ✅ Cancelled remaining order")
+                remaining_order = position['sl_order_id'] if exit_type == 'TP' else position['tp_order_id']
+                exchange.cancel_order(remaining_order, kraken_symbol)
+                self.logger.info(f"   ✅ Cancelled remaining {('SL' if exit_type == 'TP' else 'TP')} order")
             except Exception as e:
-                # Order might already be cancelled
                 self.logger.debug(f"   Could not cancel order: {e}")
                 
         except Exception as e:
             self.logger.error(f"❌ Error checking position {position['id']}: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def check_all_positions(self):
-        """
-        Check all open positions
-        
-        ISSUE #4 FIX: Also checks exchange trade history for missed trades
-        """
+        """Check all open positions and scan for new fills"""
         positions = await self.get_open_positions()
         
-        if not positions:
-            return
+        if positions:
+            self.logger.debug(f"📊 Checking {len(positions)} open positions...")
+            
+            for position in positions:
+                await self.check_position(position)
+                await asyncio.sleep(0.5)
         
-        self.logger.debug(f"📊 Checking {len(positions)} open positions...")
+        # Also scan fills for users without open_positions records
+        # This catches manual trades or trades from other sources
+        users = await self.get_active_users()
+        users_with_positions = {p['user_id'] for p in positions}
         
-        for position in positions:
-            await self.check_position(position)
-            # Small delay between checks to avoid rate limits
-            await asyncio.sleep(0.5)
-            
-            # ISSUE #4 FIX: Also check exchange trade history for missed trades
-            try:
-                missed_trades = await self.check_exchange_trade_history(position)
-                for trade in missed_trades:
-                    await self.record_missed_trade(position['user_id'], trade)
-            except Exception as e:
-                self.logger.debug(f"Error checking trade history: {e}")
-    
-    # ==================== ISSUE #4 FIX: Check Exchange Trade History ====================
-    
-    async def check_exchange_trade_history(self, position: dict) -> list:
-        """
-        ISSUE #4 FIX: Check exchange trade history for missed trades
-        
-        This catches trades that:
-        - Opened and closed within 60 seconds (same monitor interval)
-        - Were manually closed by user
-        - Had TP/SL fill very quickly
-        
-        Returns list of unrecorded trades found
-        """
-        user_short = position['user_api_key'][:15] + "..."
-        
-        try:
-            # Decrypt credentials
-            kraken_key, kraken_secret = self.decrypt_credentials(
-                position['kraken_api_key_encrypted'],
-                position['kraken_api_secret_encrypted']
-            )
-            
-            if not kraken_key:
-                return []
-            
-            exchange = self.get_exchange(position['user_api_key'], kraken_key, kraken_secret)
-            if not exchange:
-                return []
-            
-            # Fetch recent trades from Kraken
-            trades = exchange.fetch_my_trades(limit=100)
-            
-            if not trades:
-                return []
-            
-            unrecorded_trades = []
-            
-            async with self.db_pool.acquire() as conn:
-                # Get list of order IDs we've already recorded
-                recorded_orders = await conn.fetch("""
-                    SELECT kraken_order_id FROM trades 
-                    WHERE user_id = $1 AND kraken_order_id IS NOT NULL
-                """, position['user_id'])
-                recorded_set = {row['kraken_order_id'] for row in recorded_orders}
-                
-                for trade in trades:
-                    order_id = trade.get('order')
-                    if order_id and order_id not in recorded_set:
-                        # Check if this trade is recent (last 24 hours)
-                        trade_timestamp = trade.get('timestamp', 0)
-                        if isinstance(trade_timestamp, (int, float)):
-                            import time
-                            trade_age_hours = (time.time() * 1000 - trade_timestamp) / (1000 * 3600)
-                            if trade_age_hours > 24:
-                                continue  # Skip old trades
-                        
-                        unrecorded_trades.append({
-                            'order_id': order_id,
-                            'symbol': trade.get('symbol'),
-                            'side': trade.get('side'),
-                            'price': float(trade.get('price', 0)),
-                            'amount': float(trade.get('amount', 0)),
-                            'cost': float(trade.get('cost', 0)),
-                            'timestamp': trade_timestamp,
-                            'info': trade.get('info', {})
-                        })
-            
-            if unrecorded_trades:
-                self.logger.warning(f"⚠️ {user_short}: Found {len(unrecorded_trades)} unrecorded trades!")
-                for t in unrecorded_trades[:5]:  # Log first 5
-                    self.logger.warning(f"   - {t['symbol']} {t['side']} {t['amount']} @ ${t['price']:.2f}")
-            
-            return unrecorded_trades
-            
-        except Exception as e:
-            self.logger.debug(f"Could not check trade history for {user_short}: {e}")
-            return []
-    
-    async def record_missed_trade(self, user_id: int, trade: dict):
-        """
-        Record a trade that was found in exchange history but not in our database
-        
-        This ensures billing accuracy even for quick trades.
-        """
-        try:
-            trade_id = f"trade_recovered_{secrets.token_urlsafe(8)}"
-            
-            async with self.db_pool.acquire() as conn:
-                # Get user's fee tier
-                user_row = await conn.fetchrow(
-                    "SELECT fee_tier FROM follower_users WHERE id = $1", user_id
-                )
-                fee_tier = user_row['fee_tier'] if user_row else 'standard'
-                
-                await conn.execute("""
-                    INSERT INTO trades 
-                    (user_id, trade_id, kraken_order_id, opened_at, closed_at, 
-                     symbol, side, entry_price, exit_price, position_size, leverage,
-                     profit_usd, fee_charged, notes)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-                """,
-                    user_id,
-                    trade_id,
-                    trade.get('order_id'),
-                    datetime.now(),  # Approximate
-                    datetime.now(),
-                    trade.get('symbol', 'UNKNOWN'),
-                    trade.get('side', 'UNKNOWN'),
-                    trade.get('price', 0),
-                    trade.get('price', 0),  # Same as entry for recovered trades
-                    trade.get('amount', 0),
-                    1.0,  # Default leverage for recovered trades
-                    0.0,  # Unknown P&L
-                    0.0,  # No fee until P&L known
-                    f"RECOVERED from exchange history - needs review ({fee_tier} tier)"
-                )
-                
-                self.logger.info(f"   📝 Recovered trade recorded: {trade_id}")
-                
-        except Exception as e:
-            self.logger.error(f"   Failed to record recovered trade: {e}")
+        for user in users:
+            if user['id'] not in users_with_positions:
+                await self.scan_exchange_fills(user)
+                await asyncio.sleep(0.5)
     
     async def run(self):
         """Main loop - checks positions every 60 seconds"""
         self.logger.info("=" * 60)
-        self.logger.info("📊 POSITION MONITOR STARTED")
+        self.logger.info("📊 POSITION MONITOR v2 STARTED")
         self.logger.info("=" * 60)
         self.logger.info(f"🔄 Check interval: {CHECK_INTERVAL_SECONDS} seconds")
         self.logger.info(f"💰 Fee tiers: Team=0%, VIP=5%, Standard=10%")
+        self.logger.info(f"📝 Position-based tracking: Aggregates fills → 1 trade per position")
         self.logger.info("=" * 60)
         
         check_count = 0
@@ -589,7 +728,11 @@ class PositionMonitor:
                 # Log status every 5 minutes
                 if (datetime.now() - last_status_log).total_seconds() >= 300:
                     positions = await self.get_open_positions()
-                    self.logger.info(f"💓 Position monitor alive - Check #{check_count}, {len(positions)} open positions")
+                    users = await self.get_active_users()
+                    self.logger.info(
+                        f"💓 Monitor alive - Check #{check_count}, "
+                        f"{len(positions)} positions, {len(users)} users"
+                    )
                     last_status_log = datetime.now()
                 
                 await asyncio.sleep(CHECK_INTERVAL_SECONDS)
@@ -606,24 +749,10 @@ class PositionMonitor:
 
 
 async def start_position_monitor(db_pool):
-    """
-    Start the position monitor.
-    
-    Call this from main.py startup:
-    
-    ```python
-    from position_monitor import start_position_monitor
-    
-    @app.on_event("startup")
-    async def startup_event():
-        ...
-        asyncio.create_task(start_position_monitor(db_pool))
-    ```
-    """
-    # Wait for other systems to initialize
+    """Start the position monitor (call from main.py startup)"""
     await asyncio.sleep(40)
     
-    logger.info("🚀 Starting position monitor...")
+    logger.info("🚀 Starting position monitor v2...")
     
     monitor = PositionMonitor(db_pool)
     await monitor.run()
