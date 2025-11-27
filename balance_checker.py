@@ -138,6 +138,7 @@ class BalanceChecker:
         Check a single user's balance and detect changes
         
         IMPROVED: Better logic to distinguish trading losses/fees from actual withdrawals
+        ISSUE #3 FIX: Also checks exchange transaction history
         """
         
         # Get current Kraken balance
@@ -178,6 +179,121 @@ class BalanceChecker:
                 transaction_type=transaction_type,
                 amount=amount
             )
+        
+        # ISSUE #3 FIX: Also check exchange transaction history
+        # This catches transactions that balance-based detection might miss
+        exchange_txs = await self.check_exchange_transactions(
+            api_key, kraken_api_key, kraken_api_secret
+        )
+        if exchange_txs:
+            logger.info(f"   Found {len(exchange_txs)} transactions via exchange API")
+    
+    # ==================== ISSUE #3 FIX: Check Exchange Transaction History ====================
+    
+    async def check_exchange_transactions(
+        self, 
+        api_key: str, 
+        kraken_api_key: str, 
+        kraken_api_secret: str
+    ) -> list:
+        """
+        ISSUE #3 FIX: Check Kraken's deposit/withdrawal history directly
+        
+        This catches transactions that the balance-based detection might miss:
+        - Small deposits/withdrawals (< $5)
+        - Deposits that coincide with trading losses
+        - Withdrawals that coincide with trading profits
+        
+        Returns list of new transactions found
+        """
+        try:
+            import ccxt
+            
+            exchange = ccxt.krakenfutures({
+                'apiKey': kraken_api_key,
+                'secret': kraken_api_secret,
+                'enableRateLimit': True,
+            })
+            
+            new_transactions = []
+            
+            # Fetch deposit history
+            try:
+                deposits = await asyncio.to_thread(exchange.fetch_deposits)
+                
+                async with self.db_pool.acquire() as conn:
+                    for deposit in deposits:
+                        # Check if we already recorded this
+                        tx_id = deposit.get('txid') or deposit.get('id')
+                        if not tx_id:
+                            continue
+                            
+                        existing = await conn.fetchval("""
+                            SELECT id FROM portfolio_transactions 
+                            WHERE external_tx_id = $1
+                        """, tx_id)
+                        
+                        if not existing and deposit.get('status') == 'ok':
+                            amount = float(deposit.get('amount', 0))
+                            if amount > 0:
+                                # Record the deposit
+                                await conn.execute("""
+                                    INSERT INTO portfolio_transactions 
+                                    (user_id, transaction_type, amount, detection_method, notes, external_tx_id)
+                                    VALUES ($1, 'deposit', $2, 'exchange_api', $3, $4)
+                                """, api_key, amount, 
+                                    f"Auto-detected via Kraken API: {deposit.get('currency', 'USD')}", 
+                                    tx_id)
+                                
+                                new_transactions.append({
+                                    'type': 'deposit',
+                                    'amount': amount,
+                                    'tx_id': tx_id
+                                })
+                                logger.info(f"   💰 Found deposit via API: ${amount:.2f}")
+            except Exception as e:
+                logger.debug(f"   Could not fetch deposits: {e}")
+            
+            # Fetch withdrawal history
+            try:
+                withdrawals = await asyncio.to_thread(exchange.fetch_withdrawals)
+                
+                async with self.db_pool.acquire() as conn:
+                    for withdrawal in withdrawals:
+                        tx_id = withdrawal.get('txid') or withdrawal.get('id')
+                        if not tx_id:
+                            continue
+                            
+                        existing = await conn.fetchval("""
+                            SELECT id FROM portfolio_transactions 
+                            WHERE external_tx_id = $1
+                        """, tx_id)
+                        
+                        if not existing and withdrawal.get('status') == 'ok':
+                            amount = float(withdrawal.get('amount', 0))
+                            if amount > 0:
+                                await conn.execute("""
+                                    INSERT INTO portfolio_transactions 
+                                    (user_id, transaction_type, amount, detection_method, notes, external_tx_id)
+                                    VALUES ($1, 'withdrawal', $2, 'exchange_api', $3, $4)
+                                """, api_key, amount,
+                                    f"Auto-detected via Kraken API: {withdrawal.get('currency', 'USD')}",
+                                    tx_id)
+                                
+                                new_transactions.append({
+                                    'type': 'withdrawal',
+                                    'amount': amount,
+                                    'tx_id': tx_id
+                                })
+                                logger.info(f"   💸 Found withdrawal via API: ${amount:.2f}")
+            except Exception as e:
+                logger.debug(f"   Could not fetch withdrawals: {e}")
+            
+            return new_transactions
+            
+        except Exception as e:
+            logger.error(f"Error checking exchange transactions: {e}")
+            return []
         elif discrepancy > 1.0:
             # Small discrepancy - likely trading fees or slippage, not deposit/withdrawal
             logger.info(
