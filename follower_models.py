@@ -40,6 +40,12 @@ class User(Base):
     api_key = Column(String, unique=True, index=True, nullable=False)
     email = Column(String, unique=True, nullable=False)
     
+    # User tier for fee rates
+    # 'team' = 0% fees (team members)
+    # 'vip' = 5% fees (VIP customers)
+    # 'standard' = 10% fees (typical customers)
+    fee_tier = Column(String, default='standard')
+    
     # Encrypted Kraken credentials
     kraken_api_key_encrypted = Column(Text, nullable=True)
     kraken_api_secret_encrypted = Column(Text, nullable=True)
@@ -114,6 +120,26 @@ class User(Base):
                 return self.monthly_fee_paid
         
         return True
+    
+    @property
+    def fee_percentage(self) -> float:
+        """Get fee percentage based on user tier"""
+        tier_rates = {
+            'team': 0.00,      # 0% for team members
+            'vip': 0.05,       # 5% for VIPs
+            'standard': 0.10,  # 10% for typical customers
+        }
+        return tier_rates.get(self.fee_tier, 0.10)
+    
+    @property
+    def fee_tier_display(self) -> str:
+        """Get display name for fee tier"""
+        tier_names = {
+            'team': '🏠 Team (0%)',
+            'vip': '⭐ VIP (5%)',
+            'standard': '👤 Standard (10%)',
+        }
+        return tier_names.get(self.fee_tier, '👤 Standard (10%)')
 
 
 class Signal(Base):
