@@ -2,6 +2,7 @@
 # ====================================================
 # FULLY CORRECTED VERSION - Proper column names for all tables
 # FIXED: Uses pnl_usd column (not pnl)
+# CONSOLIDATED: Updates follower_users as primary source of truth
 # NO CIRCULAR IMPORTS
 
 from fastapi import APIRouter, Request, HTTPException
@@ -97,7 +98,11 @@ async def get_current_kraken_balance(kraken_key: str, kraken_secret: str):
 
 @router.post("/api/portfolio/initialize")
 async def initialize_portfolio_autodetect(request: Request):
-    """Initialize portfolio tracking - AUTO-DETECTS initial capital from Kraken"""
+    """
+    Initialize portfolio tracking - AUTO-DETECTS initial capital from Kraken
+    
+    CONSOLIDATED: Updates both follower_users (primary) and portfolio_users (backwards compat)
+    """
     api_key = request.headers.get("X-API-Key")
     
     if not api_key:
@@ -119,17 +124,24 @@ async def initialize_portfolio_autodetect(request: Request):
                 "message": "Please set up your trading agent first."
             }
         
+        # Check if already initialized in either table
         existing = await conn.fetchrow(
             "SELECT * FROM portfolio_users WHERE api_key = $1",
             api_key
         )
         
-        if existing:
+        fu_existing = await conn.fetchrow(
+            "SELECT portfolio_initialized, initial_capital FROM follower_users WHERE api_key = $1",
+            api_key
+        )
+        
+        if existing or (fu_existing and fu_existing['portfolio_initialized']):
+            initial_cap = existing['initial_capital'] if existing else fu_existing['initial_capital']
             await conn.close()
             return {
                 "status": "already_initialized",
                 "message": "Portfolio already initialized",
-                "initial_capital": float(existing['initial_capital'])
+                "initial_capital": float(initial_cap or 0)
             }
         
         kraken_balance = await get_current_kraken_balance(
@@ -161,16 +173,35 @@ async def initialize_portfolio_autodetect(request: Request):
         
         initial_capital = float(kraken_balance)
         
+        # CONSOLIDATED: Update follower_users (primary source of truth)
+        await conn.execute("""
+            UPDATE follower_users SET
+                initial_capital = $1,
+                last_known_balance = $1,
+                portfolio_initialized = true,
+                started_tracking_at = CURRENT_TIMESTAMP
+            WHERE api_key = $2
+        """, initial_capital, api_key)
+        
+        # BACKWARDS COMPAT: Also insert into portfolio_users
         await conn.execute("""
             INSERT INTO portfolio_users (api_key, initial_capital, created_at, last_known_balance)
             VALUES ($1, $2, CURRENT_TIMESTAMP, $2)
+            ON CONFLICT (api_key) DO NOTHING
         """, api_key, initial_capital)
         
+        # Get user_id for proper FK
+        user_id = await conn.fetchval(
+            "SELECT id FROM follower_users WHERE api_key = $1",
+            api_key
+        )
+        
+        # Record initial transaction with proper FKs
         await conn.execute("""
             INSERT INTO portfolio_transactions (
-                user_id, transaction_type, amount, detection_method, notes
-            ) VALUES ($1, 'initial', $2, 'automatic', $3)
-        """, api_key, initial_capital, 
+                follower_user_id, user_id, transaction_type, amount, detection_method, notes
+            ) VALUES ($1, $2, 'initial', $3, 'automatic', $4)
+        """, user_id, api_key, initial_capital, 
             f'Auto-detected from Kraken balance: ${initial_capital:,.2f}')
         
         await conn.close()
