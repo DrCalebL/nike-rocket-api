@@ -421,7 +421,11 @@ class PositionMonitor:
             self.logger.error(f"❌ Error checking position {position['id']}: {e}")
     
     async def check_all_positions(self):
-        """Check all open positions"""
+        """
+        Check all open positions
+        
+        ISSUE #4 FIX: Also checks exchange trade history for missed trades
+        """
         positions = await self.get_open_positions()
         
         if not positions:
@@ -433,6 +437,135 @@ class PositionMonitor:
             await self.check_position(position)
             # Small delay between checks to avoid rate limits
             await asyncio.sleep(0.5)
+            
+            # ISSUE #4 FIX: Also check exchange trade history for missed trades
+            try:
+                missed_trades = await self.check_exchange_trade_history(position)
+                for trade in missed_trades:
+                    await self.record_missed_trade(position['user_id'], trade)
+            except Exception as e:
+                self.logger.debug(f"Error checking trade history: {e}")
+    
+    # ==================== ISSUE #4 FIX: Check Exchange Trade History ====================
+    
+    async def check_exchange_trade_history(self, position: dict) -> list:
+        """
+        ISSUE #4 FIX: Check exchange trade history for missed trades
+        
+        This catches trades that:
+        - Opened and closed within 60 seconds (same monitor interval)
+        - Were manually closed by user
+        - Had TP/SL fill very quickly
+        
+        Returns list of unrecorded trades found
+        """
+        user_short = position['user_api_key'][:15] + "..."
+        
+        try:
+            # Decrypt credentials
+            kraken_key, kraken_secret = self.decrypt_credentials(
+                position['kraken_api_key_encrypted'],
+                position['kraken_api_secret_encrypted']
+            )
+            
+            if not kraken_key:
+                return []
+            
+            exchange = self.get_exchange(position['user_api_key'], kraken_key, kraken_secret)
+            if not exchange:
+                return []
+            
+            # Fetch recent trades from Kraken
+            trades = exchange.fetch_my_trades(limit=100)
+            
+            if not trades:
+                return []
+            
+            unrecorded_trades = []
+            
+            async with self.db_pool.acquire() as conn:
+                # Get list of order IDs we've already recorded
+                recorded_orders = await conn.fetch("""
+                    SELECT kraken_order_id FROM trades 
+                    WHERE user_id = $1 AND kraken_order_id IS NOT NULL
+                """, position['user_id'])
+                recorded_set = {row['kraken_order_id'] for row in recorded_orders}
+                
+                for trade in trades:
+                    order_id = trade.get('order')
+                    if order_id and order_id not in recorded_set:
+                        # Check if this trade is recent (last 24 hours)
+                        trade_timestamp = trade.get('timestamp', 0)
+                        if isinstance(trade_timestamp, (int, float)):
+                            import time
+                            trade_age_hours = (time.time() * 1000 - trade_timestamp) / (1000 * 3600)
+                            if trade_age_hours > 24:
+                                continue  # Skip old trades
+                        
+                        unrecorded_trades.append({
+                            'order_id': order_id,
+                            'symbol': trade.get('symbol'),
+                            'side': trade.get('side'),
+                            'price': float(trade.get('price', 0)),
+                            'amount': float(trade.get('amount', 0)),
+                            'cost': float(trade.get('cost', 0)),
+                            'timestamp': trade_timestamp,
+                            'info': trade.get('info', {})
+                        })
+            
+            if unrecorded_trades:
+                self.logger.warning(f"⚠️ {user_short}: Found {len(unrecorded_trades)} unrecorded trades!")
+                for t in unrecorded_trades[:5]:  # Log first 5
+                    self.logger.warning(f"   - {t['symbol']} {t['side']} {t['amount']} @ ${t['price']:.2f}")
+            
+            return unrecorded_trades
+            
+        except Exception as e:
+            self.logger.debug(f"Could not check trade history for {user_short}: {e}")
+            return []
+    
+    async def record_missed_trade(self, user_id: int, trade: dict):
+        """
+        Record a trade that was found in exchange history but not in our database
+        
+        This ensures billing accuracy even for quick trades.
+        """
+        try:
+            trade_id = f"trade_recovered_{secrets.token_urlsafe(8)}"
+            
+            async with self.db_pool.acquire() as conn:
+                # Get user's fee tier
+                user_row = await conn.fetchrow(
+                    "SELECT fee_tier FROM follower_users WHERE id = $1", user_id
+                )
+                fee_tier = user_row['fee_tier'] if user_row else 'standard'
+                
+                await conn.execute("""
+                    INSERT INTO trades 
+                    (user_id, trade_id, kraken_order_id, opened_at, closed_at, 
+                     symbol, side, entry_price, exit_price, position_size, 
+                     profit_usd, fee_charged, notes)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                """,
+                    user_id,
+                    trade_id,
+                    trade.get('order_id'),
+                    datetime.now(),  # Approximate
+                    datetime.now(),
+                    trade.get('symbol', 'UNKNOWN'),
+                    trade.get('side', 'UNKNOWN'),
+                    trade.get('price', 0),
+                    trade.get('price', 0),  # Same as entry for recovered trades
+                    trade.get('amount', 0),
+                    0.0,  # Unknown P&L
+                    0.0,  # No fee until P&L known
+                    f"RECOVERED from exchange history - needs review ({fee_tier} tier)"
+                )
+                
+                self.logger.info(f"   📝 Recovered trade recorded: {trade_id}")
+                
+        except Exception as e:
+            self.logger.error(f"   Failed to record recovered trade: {e}")
     
     async def run(self):
         """Main loop - checks positions every 60 seconds"""
