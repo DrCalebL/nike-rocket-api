@@ -179,6 +179,14 @@ class BalanceChecker:
                 transaction_type=transaction_type,
                 amount=amount
             )
+        elif discrepancy > 1.0:
+            # Small discrepancy - likely trading fees or slippage, not deposit/withdrawal
+            logger.info(
+                f"📊 User {api_key[:10]}...: Small discrepancy ${discrepancy:.2f} "
+                f"(likely fees/slippage, not recording as transaction)"
+            )
+        else:
+            logger.info(f"✅ User {api_key[:10]}...: Balance ${current_balance:.2f} matches expected")
         
         # ISSUE #3 FIX: Also check exchange transaction history
         # This catches transactions that balance-based detection might miss
@@ -187,6 +195,9 @@ class BalanceChecker:
         )
         if exchange_txs:
             logger.info(f"   Found {len(exchange_txs)} transactions via exchange API")
+        
+        # Update last known balance
+        await self.update_last_known_balance(api_key, current_balance)
     
     # ==================== ISSUE #3 FIX: Check Exchange Transaction History ====================
     
@@ -294,17 +305,6 @@ class BalanceChecker:
         except Exception as e:
             logger.error(f"Error checking exchange transactions: {e}")
             return []
-        elif discrepancy > 1.0:
-            # Small discrepancy - likely trading fees or slippage, not deposit/withdrawal
-            logger.info(
-                f"📊 User {api_key[:10]}...: Small discrepancy ${discrepancy:.2f} "
-                f"(likely fees/slippage, not recording as transaction)"
-            )
-        else:
-            logger.info(f"✅ User {api_key[:10]}...: Balance ${current_balance:.2f} matches expected")
-        
-        # Update last known balance
-        await self.update_last_known_balance(api_key, current_balance)
 
 
     async def get_kraken_balance(
