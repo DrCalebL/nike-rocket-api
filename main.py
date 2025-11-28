@@ -3,25 +3,21 @@ Nike Rocket Follower System - Main API
 =======================================
 Updated main.py with hosted agents system + Admin Dashboard.
 Includes automatic deposit/withdrawal detection via balance_checker.
+Now includes billing scheduler for automated invoicing!
 
 FIXED VERSION with startup_delay_seconds=30 to prevent race condition.
 
 Author: Nike Rocket Team
-Updated: November 24, 2025 - WITH HOSTED TRADING
+Updated: November 28, 2025 - WITH BILLING AUTOMATION
 """
 from fastapi import FastAPI, Request, HTTPException, Header
 from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from sqlalchemy import create_engine
 import os
 import asyncio
 import asyncpg
-
-# Rate limiting
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
 
 # Import follower system
 from follower_models import init_db
@@ -64,6 +60,9 @@ from tax_reports import (
     generate_user_fees_csv
 )
 
+# Import billing service for automated invoicing and payment collection
+from billing_service import BillingService, start_billing_scheduler
+
 # Initialize FastAPI
 app = FastAPI(
     title="Nike Rocket Follower API",
@@ -79,23 +78,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# ═══════════════════════════════════════════════════════════════
-# RATE LIMITING - Prevent abuse and brute force attacks
-# ═══════════════════════════════════════════════════════════════
-limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
-app.state.limiter = limiter
-
-@app.exception_handler(RateLimitExceeded)
-async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
-    return JSONResponse(
-        status_code=429,
-        content={
-            "status": "error",
-            "message": "Too many requests. Please slow down.",
-            "retry_after": str(exc.detail)
-        }
-    )
 
 # Database setup
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -137,7 +119,7 @@ async def root():
     return {
         "status": "online",
         "service": "$NIKEPIG's Massive Rocket API",
-        "version": "1.0.2",
+        "version": "1.1.0",
         "endpoints": {
             "signup": "/signup",
             "login": "/login",
@@ -159,7 +141,9 @@ async def root():
             "portfolio_deposit": "/api/portfolio/deposit",
             "portfolio_withdraw": "/api/portfolio/withdraw",
             "pay": "/api/pay/{api_key}",
-            "webhook": "/api/payments/webhook"
+            "webhook": "/api/payments/webhook",
+            "billing_summary": "/api/admin/billing/summary",
+            "process_billing": "/api/admin/billing/process-monthly"
         },
         "user_links": {
             "new_users": "Visit /signup to create an account",
@@ -173,8 +157,7 @@ async def health():
 
 # Admin Dashboard (NEW!)
 @app.get("/admin", response_class=HTMLResponse)
-@limiter.limit("5/minute;20/hour")  # Prevent brute force password guessing
-async def admin_dashboard(request: Request, password: str = ""):
+async def admin_dashboard(password: str = ""):
     """
     Admin dashboard to monitor hosted follower agents
     
@@ -345,8 +328,7 @@ async def admin_dashboard(request: Request, password: str = ""):
 
 # Database Reset Endpoint (NEW!)
 @app.post("/admin/reset-database")
-@limiter.limit("3/minute;10/hour")  # Prevent abuse of dangerous endpoint
-async def reset_database(request: Request, password: str = ""):
+async def reset_database(password: str = ""):
     """
     DANGER ZONE: Reset entire database
     
@@ -480,7 +462,6 @@ async def delete_review_position(
 
 
 @app.post("/admin/update-user-tier")
-@limiter.limit("10/minute")  # Admin action rate limit
 async def update_user_tier_endpoint(
     request: Request,
     x_admin_key: Optional[str] = Header(None)
@@ -692,6 +673,236 @@ async def get_available_years(password: str = ""):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# BILLING ADMIN ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/admin/billing/process-monthly")
+async def admin_process_monthly_billing(password: str = ""):
+    """
+    Manually trigger monthly billing process
+    
+    This will:
+    1. Send invoices to all users with fees due
+    2. Reset monthly counters for new month
+    
+    Auth: Admin password required
+    """
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        db_pool = await asyncpg.create_pool(DATABASE_URL)
+        billing = BillingService(db_pool)
+        result = await billing.process_monthly_billing()
+        await db_pool.close()
+        
+        return {
+            "status": "success",
+            "message": "Processed monthly billing",
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/billing/send-reminders")
+async def admin_send_reminders(password: str = ""):
+    """Manually trigger payment reminder emails"""
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        db_pool = await asyncpg.create_pool(DATABASE_URL)
+        billing = BillingService(db_pool)
+        result = await billing.send_payment_reminders()
+        await db_pool.close()
+        
+        return {
+            "status": "success",
+            "message": "Payment reminders sent",
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/billing/process-suspensions")
+async def admin_process_suspensions(password: str = ""):
+    """Manually trigger auto-suspension check"""
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        db_pool = await asyncpg.create_pool(DATABASE_URL)
+        billing = BillingService(db_pool)
+        result = await billing.process_auto_suspensions()
+        await db_pool.close()
+        
+        return {
+            "status": "success",
+            "message": "Suspension check complete",
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/billing/summary")
+async def admin_billing_summary(password: str = ""):
+    """
+    Get billing summary
+    
+    Returns:
+    - Unpaid invoices count/amount
+    - Paid invoices count
+    - Total collected
+    - Users by tier
+    - Suspended for non-payment
+    """
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        db_pool = await asyncpg.create_pool(DATABASE_URL)
+        billing = BillingService(db_pool)
+        summary = await billing.get_billing_summary()
+        await db_pool.close()
+        
+        return {
+            "status": "success",
+            "billing_summary": summary
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/billing/send-invoice/{user_id}")
+async def admin_send_invoice(user_id: int, password: str = ""):
+    """Manually send invoice to specific user"""
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        from datetime import datetime
+        db_pool = await asyncpg.create_pool(DATABASE_URL)
+        
+        async with db_pool.acquire() as conn:
+            user = await conn.fetchrow("""
+                SELECT id, email, api_key, fee_tier, monthly_profit, monthly_fee_due
+                FROM follower_users
+                WHERE id = $1
+            """, user_id)
+            
+            if not user:
+                await db_pool.close()
+                raise HTTPException(status_code=404, detail="User not found")
+            
+            if user['monthly_fee_due'] <= 0:
+                await db_pool.close()
+                return {
+                    "status": "skipped",
+                    "message": "No fees due for this user"
+                }
+            
+            billing = BillingService(db_pool)
+            email_sent = billing.send_invoice_email(
+                to_email=user['email'],
+                api_key=user['api_key'],
+                amount=float(user['monthly_fee_due']),
+                profit=float(user['monthly_profit']),
+                fee_tier=user['fee_tier'] or 'standard',
+                for_month=datetime.utcnow().strftime("%Y-%m")
+            )
+            
+            if email_sent:
+                await conn.execute("""
+                    UPDATE follower_users
+                    SET last_fee_calculation = CURRENT_TIMESTAMP
+                    WHERE id = $1
+                """, user_id)
+        
+        await db_pool.close()
+        
+        return {
+            "status": "success" if email_sent else "failed",
+            "user": user['email'],
+            "amount": float(user['monthly_fee_due'])
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/billing/waive-fees/{user_id}")
+async def admin_waive_fees(user_id: int, password: str = ""):
+    """Waive current fees for a user (mark as paid without payment)"""
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        db_pool = await asyncpg.create_pool(DATABASE_URL)
+        
+        async with db_pool.acquire() as conn:
+            result = await conn.execute("""
+                UPDATE follower_users
+                SET 
+                    monthly_fee_paid = true,
+                    monthly_fee_due = 0
+                WHERE id = $1
+            """, user_id)
+        
+        await db_pool.close()
+        
+        if result == "UPDATE 0":
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {
+            "status": "success",
+            "message": f"Fees waived for user {user_id}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/billing/restore-access/{user_id}")
+async def admin_restore_access(user_id: int, password: str = ""):
+    """Manually restore access for suspended user"""
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        db_pool = await asyncpg.create_pool(DATABASE_URL)
+        
+        async with db_pool.acquire() as conn:
+            result = await conn.execute("""
+                UPDATE follower_users
+                SET 
+                    access_granted = true,
+                    suspended_at = NULL,
+                    suspension_reason = NULL
+                WHERE id = $1
+            """, user_id)
+        
+        await db_pool.close()
+        
+        if result == "UPDATE 0":
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {
+            "status": "success",
+            "message": f"Access restored for user {user_id}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # Serve static background images (NEW!)
 @app.get("/static/backgrounds/{filename}")
@@ -3102,6 +3313,13 @@ async def startup_event():
             # ═══════════════════════════════════════════════════════════
             asyncio.create_task(start_position_monitor(db_pool))
             print("📊 Position monitor scheduled (starts in 40 seconds)")
+            
+            # ═══════════════════════════════════════════════════════════
+            # BILLING SCHEDULER: Handles monthly invoicing and reminders
+            # Sends invoice emails, payment reminders, and auto-suspends
+            # ═══════════════════════════════════════════════════════════
+            asyncio.create_task(start_billing_scheduler(db_pool))
+            print("💰 Billing scheduler scheduled (starts in 60 seconds)")
             
         except Exception as e:
             print(f"⚠️ Background tasks failed to start: {e}")
