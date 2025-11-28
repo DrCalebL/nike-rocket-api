@@ -1,18 +1,24 @@
 """
-Nike Rocket Position Monitor v2
-================================
+Nike Rocket Position Monitor v2.1 - 30-Day Billing
+===================================================
 
 REFACTORED: Position-based tracking instead of individual fills
 
-Key changes from v1:
-- Records fills to position_fills table (audit trail)
-- Aggregates fills into positions with weighted avg entry
-- Creates ONE trade record when position closes (not per-fill)
+Key changes from v2.0:
+- NO IMMEDIATE FEE CHARGING - profits accumulate in billing cycle
+- Fee calculation happens at end of 30-day cycle via billing_service_30day.py
+- Trades table still records profit_usd but fee_charged is always 0
 
 CRITICAL v2.1 UPDATE - SIGNAL MATCHING:
 - Only tracks trades that match a Nike Rocket signal
 - Manual/user trades are SKIPPED (no fees charged)
 - This ensures users aren't charged for their own trades
+
+30-DAY BILLING FLOW:
+1. Trade closes → Record profit in trades table (fee_charged = 0)
+2. Update current_cycle_profit in follower_users (accumulated)
+3. At end of 30 days, billing service calculates fee on total profit
+4. Coinbase invoice sent if profitable
 
 This ensures:
 - Dashboard shows "1 position" not "10 trades"
@@ -20,17 +26,10 @@ This ensures:
 - Clean P&L calculation on close
 - Better stats that reflect actual round-trip performance
 - Users only pay fees on copytraded signals
-
-Flow:
-1. Scan exchange history → record_fill() for each execution
-2. sync_user_position() aggregates fills by symbol → open_positions
-3. When position closes:
-   a. Check if it matches a Nike Rocket signal
-   b. If YES → calculate P&L → record trade → charge fees
-   c. If NO → skip recording (manual trade, no fees)
+- Fees billed monthly, not per-trade
 
 Author: Nike Rocket Team
-Version: 2.1 (Signal-matched tracking)
+Version: 2.1 (30-Day Billing)
 """
 
 import asyncio
@@ -604,7 +603,7 @@ class PositionMonitor:
                 signal_id = matching_signal.get('signal_id') or matching_signal.get('id')
             
             # ==================== PROCEED WITH RECORDING ====================
-            # This is a Nike Rocket signal trade - record it and charge fees
+            # This is a Nike Rocket signal trade - record it (NO FEE - 30-day billing)
             
             # Calculate P&L
             if side == 'long':
@@ -616,19 +615,15 @@ class PositionMonitor:
             if side == 'short':
                 profit_percent = -profit_percent
             
-            # Get fee tier
-            fee_tier = position.get('fee_tier', 'standard')
-            fee_rates = {'team': 0.0, 'vip': 0.05, 'standard': 0.10}
-            fee_percentage = fee_rates.get(fee_tier, 0.10)
-            
-            # Calculate fee (only on profits)
-            fee_charged = max(0, profit_usd * fee_percentage) if profit_usd > 0 else 0
+            # 30-DAY BILLING: No per-trade fee calculation
+            # Fee is calculated at end of 30-day cycle by billing_service_30day.py
+            fee_charged = 0  # Always 0 - fees handled by billing service
             
             # Generate trade ID
             trade_id = f"trade_{secrets.token_urlsafe(12)}"
             
             async with self.db_pool.acquire() as conn:
-                # Record the trade
+                # Record the trade (fee_charged = 0)
                 await conn.execute("""
                     INSERT INTO trades 
                     (user_id, signal_id, trade_id, kraken_order_id, opened_at, closed_at,
@@ -651,18 +646,27 @@ class PositionMonitor:
                     profit_usd,
                     profit_percent,
                     exit_type,
-                    fee_charged,
+                    fee_charged,  # Always 0 for 30-day billing
                     f"Signal trade. Aggregated from {fill_count} fills. Avg entry: ${entry_price:.4f}"
                 )
                 
-                # Update user stats
+                # Update user stats - accumulate profit for 30-day billing
+                # Note: total_fees NOT updated here - handled by billing service at cycle end
                 await conn.execute("""
                     UPDATE follower_users SET 
                         total_trades = COALESCE(total_trades, 0) + 1,
                         total_profit = COALESCE(total_profit, 0) + $1,
-                        total_fees = COALESCE(total_fees, 0) + $2
-                    WHERE id = $3
-                """, profit_usd, fee_charged, position['user_id'])
+                        current_cycle_profit = COALESCE(current_cycle_profit, 0) + $1,
+                        current_cycle_trades = COALESCE(current_cycle_trades, 0) + 1
+                    WHERE id = $2
+                """, profit_usd, position['user_id'])
+                
+                # Start billing cycle if not started (first trade)
+                await conn.execute("""
+                    UPDATE follower_users SET 
+                        billing_cycle_start = CURRENT_TIMESTAMP
+                    WHERE id = $1 AND billing_cycle_start IS NULL
+                """, position['user_id'])
                 
                 # Mark fills as assigned to this position (audit trail)
                 if position.get('id'):
@@ -684,8 +688,7 @@ class PositionMonitor:
             self.logger.info(f"   Exit: ${exit_price:.4f} ({exit_type})")
             self.logger.info(f"   Size: {position_size:.2f} contracts")
             self.logger.info(f"   P&L: ${profit_usd:+.2f} ({profit_percent:+.2f}%)")
-            if fee_charged > 0:
-                self.logger.info(f"   Fee: ${fee_charged:.2f} ({int(fee_percentage*100)}% - {fee_tier})")
+            self.logger.info(f"   📅 Profit added to 30-day billing cycle")
             
             return True
             
@@ -818,6 +821,7 @@ class PositionMonitor:
         self.logger.info("=" * 60)
         self.logger.info(f"🔄 Check interval: {CHECK_INTERVAL_SECONDS} seconds")
         self.logger.info(f"💰 Fee tiers: Team=0%, VIP=5%, Standard=10%")
+        self.logger.info(f"📅 30-Day Rolling Billing: Fees charged at cycle end, not per-trade")
         self.logger.info(f"📝 Position-based tracking: Aggregates fills → 1 trade per position")
         self.logger.info("=" * 60)
         
