@@ -2000,7 +2000,6 @@ async def portfolio_dashboard(request: Request):
                 <div class="stat-card">
                     <div class="stat-label">Profit Factor</div>
                     <div class="stat-value" id="profit-factor">0x</div>
-                    <div class="stat-detail" id="pf-detail">Wins / Losses</div>
                 </div>
                 
                 <div class="stat-card">
@@ -2021,7 +2020,6 @@ async def portfolio_dashboard(request: Request):
                 <div class="stat-card">
                     <div class="stat-label">Max Drawdown</div>
                     <div class="stat-value" id="max-dd">0%</div>
-                    <div class="stat-detail" id="dd-recovery">Recovery</div>
                 </div>
                 
                 <div class="stat-card">
@@ -2468,7 +2466,14 @@ async def portfolio_dashboard(request: Request):
                 roiTotal >= 0 ? `+${{roiTotal.toFixed(1)}}%` : `${{roiTotal.toFixed(1)}}%`;
             document.getElementById('roi-total').style.color = roiTotal >= 0 ? '#10b981' : '#ef4444';
             
-            document.getElementById('profit-factor').textContent = `${{stats.profit_factor}}x`;
+            // FIXED: Handle infinite profit factor (no losses)
+            if (stats.profit_factor === null) {{
+                document.getElementById('profit-factor').textContent = '∞';
+                document.getElementById('profit-factor').style.color = '#10b981';
+            }} else {{
+                document.getElementById('profit-factor').textContent = `${{stats.profit_factor}}x`;
+                document.getElementById('profit-factor').style.color = stats.profit_factor >= 1 ? '#10b981' : '#ef4444';
+            }}
             
             // Handle negative best trade (worst "best" trade)
             const bestTrade = stats.best_trade || 0;
@@ -2483,12 +2488,21 @@ async def portfolio_dashboard(request: Request):
             document.getElementById('avg-trade').style.color = avgTrade >= 0 ? '#10b981' : '#ef4444';
             
             document.getElementById('total-trades').textContent = stats.total_trades;
-            document.getElementById('max-dd').textContent = `-${{stats.max_drawdown}}%`;
-            document.getElementById('dd-recovery').textContent = `+${{stats.recovery_from_dd.toFixed(0)}}% recovered`;
-            document.getElementById('sharpe').textContent = stats.sharpe_ratio.toFixed(1);
-            document.getElementById('days-active').textContent = stats.days_active;
-            document.getElementById('pf-detail').textContent = 
-                `$${{stats.gross_wins.toLocaleString()}} wins / $${{stats.gross_losses.toLocaleString()}} losses`;
+            
+            // FIXED: Max drawdown display (no minus for 0%)
+            const maxDD = stats.max_drawdown || 0;
+            document.getElementById('max-dd').textContent = maxDD > 0 ? `-${{maxDD}}%` : `0%`;
+            
+            // FIXED: Handle Sharpe ratio null (not calculable with <2 trades)
+            if (stats.sharpe_ratio === null) {{
+                document.getElementById('sharpe').textContent = 'N/A';
+                document.getElementById('sharpe').style.color = '#9ca3af';
+            }} else {{
+                document.getElementById('sharpe').textContent = stats.sharpe_ratio.toFixed(1);
+                document.getElementById('sharpe').style.color = stats.sharpe_ratio >= 1 ? '#10b981' : (stats.sharpe_ratio >= 0 ? '#fbbf24' : '#ef4444');
+            }}
+            
+            document.getElementById('days-active').textContent = stats.days_active || '< 1';
             
             if (stats.started_tracking) {{
                 const startDate = new Date(stats.started_tracking);
@@ -2501,6 +2515,14 @@ async def portfolio_dashboard(request: Request):
         async function loadBalanceSummary() {{
             try {{
                 const response = await fetch(`/api/portfolio/balance-summary?key=${{currentApiKey}}`);
+                
+                if (response.status === 401) {{
+                    // Invalid API key - redirect to login
+                    alert('Invalid API key. Please log in again.');
+                    logout();
+                    return;
+                }}
+                
                 const data = await response.json();
                 
                 if (data.status === 'success') {{
@@ -2838,9 +2860,9 @@ async def portfolio_dashboard(request: Request):
         let selectorMode = 'download'; // 'download' or 'twitter'
         
         function shareToTwitter() {{
-            // Get profit from portfolio overview
-            const profitElement = document.getElementById('total-profit-overview');
-            const roiElement = document.getElementById('roi-total');
+            // Get profit from the MASSIVE ROCKET PERFORMANCE section (period-specific)
+            const profitElement = document.getElementById('total-profit');
+            const roiElement = document.getElementById('roi-initial');
             
             if (!profitElement || !roiElement) {{
                 alert('Portfolio data not loaded yet. Please wait a moment and try again.');
@@ -3035,9 +3057,9 @@ ROI: ${{roi}}`;
         }}
         
         function downloadPerformanceCard() {{
-            // Get profit from portfolio overview
-            const profitElement = document.getElementById('total-profit-overview');
-            const roiElement = document.getElementById('roi-total');
+            // Get profit from the MASSIVE ROCKET PERFORMANCE section (period-specific)
+            const profitElement = document.getElementById('total-profit');
+            const roiElement = document.getElementById('roi-initial');
             
             if (!profitElement || !roiElement) {{
                 alert('Portfolio data not loaded yet. Please wait a moment and try again.');
@@ -3047,12 +3069,13 @@ ROI: ${{roi}}`;
             
             const profit = profitElement.textContent;
             const roi = roiElement.textContent;
-            const period = '30d'; // Default to 30 days for portfolio
+            const period = currentPeriod; // Use selected time period
             
             const periodLabels = {{
                 '7d': '7 days',
                 '30d': '30 days',
                 '90d': '90 days',
+                '1y': '1 year',
                 'all': 'all-time'
             }};
             
