@@ -1537,6 +1537,9 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
                     }}
                     yearSelect.appendChild(option);
                 }});
+                
+                // Load income summary after years are populated
+                loadIncomeSummary();
             }} else {{
                 // Fallback: just show current year
                 const currentYear = new Date().getFullYear();
@@ -1545,6 +1548,9 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
                 option.textContent = currentYear;
                 option.selected = true;
                 yearSelect.appendChild(option);
+                
+                // Load income summary after fallback year is set
+                loadIncomeSummary();
             }}
         }} catch (error) {{
             console.error('Error populating years:', error);
@@ -1555,6 +1561,9 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
             option.textContent = currentYear;
             option.selected = true;
             yearSelect.appendChild(option);
+            
+            // Load income summary after fallback year is set
+            loadIncomeSummary();
         }}
     }}
     
@@ -1596,6 +1605,12 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
     async function loadIncomeSummary() {{
         const year = document.getElementById('reportYear').value;
         
+        // Skip if year is not selected (dropdown not populated yet)
+        if (!year) {{
+            console.log('Skipping income summary - year not selected');
+            return;
+        }}
+        
         try {{
             const response = await fetch(`/admin/reports/income-summary?year=${{year}}&password=${{ADMIN_PASSWORD}}`);
             const result = await response.json();
@@ -1636,10 +1651,7 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
     // Update summary when year changes
     document.getElementById('reportYear').addEventListener('change', loadIncomeSummary);
     
-    // Load summary on page load
-    window.addEventListener('load', () => {{
-        loadIncomeSummary();
-    }});
+    // Note: loadIncomeSummary is now called from within populateYears() after dropdown is populated
     
     // ============ USER SEARCH FUNCTIONALITY ============
     function filterUsers() {{
