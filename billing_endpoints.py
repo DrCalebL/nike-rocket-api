@@ -1,255 +1,253 @@
 """
-Nike Rocket Billing Endpoints
-==============================
-Admin endpoints for billing operations:
-- Manual invoice generation
-- Payment reminders
-- Billing summary
-- Manual suspend/restore
+Nike Rocket Billing Endpoints - 30-Day Rolling
+===============================================
 
-Add these to main.py or create separate router
+FastAPI endpoints for billing functionality:
+1. Coinbase Commerce webhook handler
+2. Payment status endpoint
+3. Billing cycle info endpoint
+
+Author: Nike Rocket Team
+Version: 2.0 (30-Day Rolling)
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Header
-from datetime import datetime
+import hashlib
+import hmac
+import logging
 import os
+from datetime import datetime
+from typing import Optional
 
-# Import billing service
-from billing_service import BillingService
+from fastapi import APIRouter, Request, HTTPException, Query
+from fastapi.responses import JSONResponse
 
-router = APIRouter(tags=["billing"])
+# Configuration
+COINBASE_WEBHOOK_SECRET = os.getenv("COINBASE_WEBHOOK_SECRET", "")
 
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme123")
+# Setup logging
+logger = logging.getLogger("BILLING_API")
 
-
-def verify_admin(x_admin_password: str = Header(None)):
-    """Verify admin password"""
-    if x_admin_password != ADMIN_PASSWORD:
-        raise HTTPException(status_code=401, detail="Invalid admin password")
-    return True
+# Router
+router = APIRouter(prefix="/api/billing", tags=["Billing"])
 
 
-# =============================================================================
-# ADMIN BILLING ENDPOINTS
-# =============================================================================
-
-@router.post("/api/admin/billing/process-monthly")
-async def admin_process_monthly_billing(
-    admin: bool = Depends(verify_admin),
-    db_pool = None  # Inject from app state
-):
+def verify_coinbase_signature(payload: bytes, signature: str) -> bool:
     """
-    Manually trigger monthly billing process
+    Verify Coinbase Commerce webhook signature
     
-    This will:
-    1. Send invoices to all users with fees due
-    2. Reset monthly counters for new month
-    
-    Auth: Admin password required
-    """
-    if not db_pool:
-        raise HTTPException(status_code=500, detail="Database pool not available")
-    
-    billing = BillingService(db_pool)
-    result = await billing.process_monthly_billing()
-    
-    return {
-        "status": "success",
-        "message": f"Processed monthly billing",
-        **result
-    }
-
-
-@router.post("/api/admin/billing/send-reminders")
-async def admin_send_reminders(
-    admin: bool = Depends(verify_admin),
-    db_pool = None
-):
-    """
-    Manually trigger payment reminder emails
-    
-    Auth: Admin password required
-    """
-    if not db_pool:
-        raise HTTPException(status_code=500, detail="Database pool not available")
-    
-    billing = BillingService(db_pool)
-    result = await billing.send_payment_reminders()
-    
-    return {
-        "status": "success",
-        "message": "Payment reminders sent",
-        **result
-    }
-
-
-@router.post("/api/admin/billing/process-suspensions")
-async def admin_process_suspensions(
-    admin: bool = Depends(verify_admin),
-    db_pool = None
-):
-    """
-    Manually trigger auto-suspension check
-    
-    Auth: Admin password required
-    """
-    if not db_pool:
-        raise HTTPException(status_code=500, detail="Database pool not available")
-    
-    billing = BillingService(db_pool)
-    result = await billing.process_auto_suspensions()
-    
-    return {
-        "status": "success",
-        "message": "Suspension check complete",
-        **result
-    }
-
-
-@router.get("/api/admin/billing/summary")
-async def admin_billing_summary(
-    admin: bool = Depends(verify_admin),
-    db_pool = None
-):
-    """
-    Get billing summary
-    
+    Args:
+        payload: Raw request body bytes
+        signature: X-CC-Webhook-Signature header value
+        
     Returns:
-    - Unpaid invoices count/amount
-    - Paid invoices count
-    - Total collected
-    - Users by tier
-    - Suspended for non-payment
-    
-    Auth: Admin password required
+        True if signature is valid
     """
+    if not COINBASE_WEBHOOK_SECRET:
+        logger.warning("⚠️ COINBASE_WEBHOOK_SECRET not set - skipping verification")
+        return True  # Allow in dev mode
+    
+    expected = hmac.new(
+        COINBASE_WEBHOOK_SECRET.encode(),
+        payload,
+        hashlib.sha256
+    ).hexdigest()
+    
+    return hmac.compare_digest(expected, signature)
+
+
+@router.post("/webhook/coinbase")
+async def coinbase_webhook(request: Request):
+    """
+    Handle Coinbase Commerce payment webhooks
+    
+    Events:
+    - charge:created - Invoice created (we already know this)
+    - charge:confirmed - Payment confirmed on blockchain
+    - charge:completed - Payment fully complete
+    - charge:failed - Payment failed
+    - charge:expired - Invoice expired without payment
+    """
+    # Get raw body for signature verification
+    body = await request.body()
+    
+    # Verify signature
+    signature = request.headers.get("X-CC-Webhook-Signature", "")
+    if not verify_coinbase_signature(body, signature):
+        logger.warning("⚠️ Invalid Coinbase webhook signature")
+        raise HTTPException(status_code=401, detail="Invalid signature")
+    
+    # Parse event
+    try:
+        import json
+        event = json.loads(body)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    
+    event_type = event.get("event", {}).get("type")
+    charge_data = event.get("event", {}).get("data", {})
+    charge_id = charge_data.get("id")
+    
+    logger.info(f"📥 Coinbase webhook: {event_type} for charge {charge_id}")
+    
+    if not charge_id:
+        return JSONResponse({"status": "ignored", "reason": "no charge_id"})
+    
+    # Get billing service from app state
+    from main import get_db_pool
+    db_pool = await get_db_pool()
+    
     if not db_pool:
-        raise HTTPException(status_code=500, detail="Database pool not available")
+        logger.error("❌ Database pool not available")
+        raise HTTPException(status_code=500, detail="Database unavailable")
     
-    billing = BillingService(db_pool)
-    summary = await billing.get_billing_summary()
+    # Import billing service
+    from billing_service_30day import BillingServiceV2
+    billing = BillingServiceV2(db_pool)
     
-    return {
-        "status": "success",
-        "billing_summary": summary
-    }
+    # Process the event
+    if event_type in ['charge:confirmed', 'charge:completed']:
+        await billing.process_webhook_payment(charge_id, event_type)
+        logger.info(f"✅ Payment processed for charge {charge_id}")
+        
+    elif event_type in ['charge:failed', 'charge:expired']:
+        await billing.process_webhook_payment(charge_id, event_type)
+        logger.warning(f"⚠️ Payment failed/expired for charge {charge_id}")
+    
+    return JSONResponse({"status": "ok"})
 
 
-@router.post("/api/admin/billing/send-invoice/{user_id}")
-async def admin_send_invoice(
-    user_id: int,
-    admin: bool = Depends(verify_admin),
-    db_pool = None
+@router.get("/status")
+async def get_billing_status(
+    key: str = Query(..., description="User API key")
 ):
     """
-    Manually send invoice to specific user
+    Get user's billing status
     
-    Auth: Admin password required
+    Returns current billing cycle info, pending invoices, etc.
     """
+    from main import get_db_pool
+    db_pool = await get_db_pool()
+    
     if not db_pool:
-        raise HTTPException(status_code=500, detail="Database pool not available")
+        raise HTTPException(status_code=500, detail="Database unavailable")
     
     async with db_pool.acquire() as conn:
         user = await conn.fetchrow("""
-            SELECT id, email, api_key, fee_tier, monthly_profit, monthly_fee_due
+            SELECT 
+                id, email, fee_tier, next_cycle_fee_tier,
+                billing_cycle_start, current_cycle_profit, current_cycle_trades,
+                pending_invoice_id, pending_invoice_amount, invoice_due_date,
+                total_profit, total_trades, total_fees_paid
             FROM follower_users
-            WHERE id = $1
-        """, user_id)
+            WHERE api_key = $1
+        """, key)
         
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        if user['monthly_fee_due'] <= 0:
-            return {
-                "status": "skipped",
-                "message": "No fees due for this user"
+        # Calculate cycle info
+        cycle_start = user['billing_cycle_start']
+        if cycle_start:
+            from datetime import timedelta
+            cycle_end = cycle_start + timedelta(days=30)
+            days_remaining = max(0, (cycle_end - datetime.utcnow()).days)
+        else:
+            cycle_end = None
+            days_remaining = None
+        
+        # Get pending invoice details
+        pending_invoice = None
+        if user['pending_invoice_id']:
+            invoice = await conn.fetchrow("""
+                SELECT hosted_url, amount_usd, created_at, expires_at, status
+                FROM billing_invoices
+                WHERE coinbase_charge_id = $1
+            """, user['pending_invoice_id'])
+            
+            if invoice:
+                pending_invoice = {
+                    "amount": float(invoice['amount_usd']),
+                    "payment_url": invoice['hosted_url'],
+                    "created_at": invoice['created_at'].isoformat() if invoice['created_at'] else None,
+                    "expires_at": invoice['expires_at'].isoformat() if invoice['expires_at'] else None,
+                    "status": invoice['status']
+                }
+        
+        return {
+            "status": "success",
+            "billing": {
+                "fee_tier": user['fee_tier'],
+                "next_cycle_fee_tier": user['next_cycle_fee_tier'],
+                "current_cycle": {
+                    "start": cycle_start.isoformat() if cycle_start else None,
+                    "end": cycle_end.isoformat() if cycle_end else None,
+                    "days_remaining": days_remaining,
+                    "profit": float(user['current_cycle_profit'] or 0),
+                    "trades": int(user['current_cycle_trades'] or 0)
+                },
+                "pending_invoice": pending_invoice,
+                "lifetime": {
+                    "total_profit": float(user['total_profit'] or 0),
+                    "total_trades": int(user['total_trades'] or 0),
+                    "total_fees_paid": float(user['total_fees_paid'] or 0)
+                }
             }
-        
-        billing = BillingService(db_pool)
-        email_sent = billing.send_invoice_email(
-            to_email=user['email'],
-            api_key=user['api_key'],
-            amount=float(user['monthly_fee_due']),
-            profit=float(user['monthly_profit']),
-            fee_tier=user['fee_tier'] or 'standard',
-            for_month=datetime.utcnow().strftime("%Y-%m")
-        )
-        
-        if email_sent:
-            # Update last_fee_calculation
-            await conn.execute("""
-                UPDATE follower_users
-                SET last_fee_calculation = CURRENT_TIMESTAMP
-                WHERE id = $1
-            """, user_id)
-        
-        return {
-            "status": "success" if email_sent else "failed",
-            "user": user['email'],
-            "amount": float(user['monthly_fee_due'])
         }
 
 
-@router.post("/api/admin/billing/waive-fees/{user_id}")
-async def admin_waive_fees(
-    user_id: int,
-    admin: bool = Depends(verify_admin),
-    db_pool = None
+@router.get("/cycles")
+async def get_billing_cycles(
+    key: str = Query(..., description="User API key"),
+    limit: int = Query(10, ge=1, le=50)
 ):
     """
-    Waive current fees for a user (mark as paid without payment)
-    
-    Auth: Admin password required
+    Get user's billing cycle history
     """
+    from main import get_db_pool
+    db_pool = await get_db_pool()
+    
     if not db_pool:
-        raise HTTPException(status_code=500, detail="Database pool not available")
+        raise HTTPException(status_code=500, detail="Database unavailable")
     
     async with db_pool.acquire() as conn:
-        result = await conn.execute("""
-            UPDATE follower_users
-            SET 
-                monthly_fee_paid = true,
-                monthly_fee_due = 0
-            WHERE id = $1
-        """, user_id)
+        user = await conn.fetchrow("""
+            SELECT id FROM follower_users WHERE api_key = $1
+        """, key)
         
-        if result == "UPDATE 0":
+        if not user:
             raise HTTPException(status_code=404, detail="User not found")
+        
+        cycles = await conn.fetch("""
+            SELECT 
+                cycle_number, cycle_start, cycle_end,
+                total_profit, total_trades,
+                fee_tier, fee_percentage, fee_amount,
+                invoice_status, invoice_paid_at
+            FROM billing_cycles
+            WHERE user_id = $1
+            ORDER BY cycle_number DESC
+            LIMIT $2
+        """, user['id'], limit)
         
         return {
             "status": "success",
-            "message": f"Fees waived for user {user_id}"
+            "cycles": [
+                {
+                    "cycle_number": c['cycle_number'],
+                    "start": c['cycle_start'].isoformat() if c['cycle_start'] else None,
+                    "end": c['cycle_end'].isoformat() if c['cycle_end'] else None,
+                    "profit": float(c['total_profit']),
+                    "trades": c['total_trades'],
+                    "fee_tier": c['fee_tier'],
+                    "fee_percentage": float(c['fee_percentage']),
+                    "fee_amount": float(c['fee_amount']),
+                    "invoice_status": c['invoice_status'],
+                    "paid_at": c['invoice_paid_at'].isoformat() if c['invoice_paid_at'] else None
+                }
+                for c in cycles
+            ]
         }
 
 
-@router.post("/api/admin/billing/restore-access/{user_id}")
-async def admin_restore_access(
-    user_id: int,
-    admin: bool = Depends(verify_admin),
-    db_pool = None
-):
-    """
-    Manually restore access for suspended user
-    
-    Auth: Admin password required
-    """
-    if not db_pool:
-        raise HTTPException(status_code=500, detail="Database pool not available")
-    
-    async with db_pool.acquire() as conn:
-        result = await conn.execute("""
-            UPDATE follower_users
-            SET 
-                access_granted = true,
-                suspended_at = NULL,
-                suspension_reason = NULL
-            WHERE id = $1
-        """, user_id)
-        
-        if result == "UPDATE 0":
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        return {
-            "status": "success",
-            "message": f"Access restored for user {user_id}"
-        }
+# Export router
+__all__ = ['router']
