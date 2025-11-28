@@ -308,7 +308,7 @@ def get_positions_needing_review() -> List[Dict]:
                 op.opened_at,
                 op.status
             FROM open_positions op
-            JOIN follower_users fu ON op.user_id = fu.id
+            JOIN follower_users fu ON op.user_id::text = fu.id::text
             WHERE op.status = 'needs_review'
             ORDER BY op.opened_at DESC
         """)
@@ -1455,7 +1455,7 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
                 />
                 <button class="clear-search" onclick="clearSearch()">Clear</button>
             </div>
-            <table id="usersTable">>
+            <table id="usersTable">
                 <thead>
                     <tr>
                         <th>Status</th>
