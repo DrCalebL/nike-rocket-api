@@ -82,7 +82,6 @@ class BalanceChecker:
                     return
                 
                 # CONSOLIDATED: Query follower_users where portfolio is initialized
-                # Falls back to checking portfolio_users for backwards compatibility
                 users = await conn.fetch("""
                     SELECT DISTINCT
                         fu.id,
@@ -93,10 +92,7 @@ class BalanceChecker:
                     WHERE fu.credentials_set = true
                       AND fu.kraken_api_key_encrypted IS NOT NULL
                       AND fu.kraken_api_secret_encrypted IS NOT NULL
-                      AND (
-                          fu.portfolio_initialized = true
-                          OR EXISTS (SELECT 1 FROM portfolio_users pu WHERE pu.api_key = fu.api_key)
-                      )
+                      AND fu.portfolio_initialized = true
                 """)
                 
                 if not users:
@@ -380,10 +376,9 @@ class BalanceChecker:
         """
         Calculate expected balance based on initial capital + deposits - withdrawals + trading P&L
         
-        CONSOLIDATED: 
-        - Gets initial_capital from follower_users first, falls back to portfolio_users
-        - Uses follower_user_id FK for transactions, falls back to api_key
-        - Reads trading P&L from trades table (where position monitor records closed trades)
+        - Gets initial_capital from follower_users
+        - Uses follower_user_id FK for transactions
+        - Reads trading P&L from trades table
         """
         async with self.db_pool.acquire() as conn:
             
@@ -395,15 +390,6 @@ class BalanceChecker:
             """, user_id)
             
             initial_capital = float(fu_info['initial_capital'] or 0) if fu_info and fu_info['initial_capital'] else 0.0
-            
-            # Fallback to portfolio_users if not set in follower_users
-            if initial_capital == 0:
-                pu_info = await conn.fetchrow("""
-                    SELECT initial_capital
-                    FROM portfolio_users
-                    WHERE api_key = $1
-                """, api_key)
-                initial_capital = float(pu_info['initial_capital'] or 0) if pu_info else 0.0
             
             # Get deposits from portfolio_transactions
             # Try new FK first, fall back to api_key
@@ -482,31 +468,12 @@ class BalanceChecker:
                 f'Auto-detected {transaction_type} via balance checker'
             )
             
-            # Also update totals in portfolio_users if it exists (backwards compat)
-            try:
-                if transaction_type == 'deposit':
-                    await conn.execute("""
-                        UPDATE portfolio_users 
-                        SET total_deposits = COALESCE(total_deposits, 0) + $1
-                        WHERE api_key = $2
-                    """, float(amount), api_key)
-                else:  # withdrawal
-                    await conn.execute("""
-                        UPDATE portfolio_users 
-                        SET total_withdrawals = COALESCE(total_withdrawals, 0) + $1
-                        WHERE api_key = $2
-                    """, float(amount), api_key)
-            except Exception:
-                pass  # portfolio_users might not exist
-            
             logger.info(f"✅ Recorded {transaction_type} of ${amount:.2f} for {api_key[:10]}...")
 
 
     async def update_last_known_balance(self, user_id: int, api_key: str, balance: Decimal):
         """
         Update the last known balance for a user
-        
-        CONSOLIDATED: Updates both follower_users and portfolio_users for compatibility
         """
         async with self.db_pool.acquire() as conn:
             # Update follower_users
@@ -515,17 +482,6 @@ class BalanceChecker:
                 SET last_known_balance = $1
                 WHERE id = $2
             """, float(balance), user_id)
-            
-            # Also update portfolio_users for backwards compat
-            try:
-                await conn.execute("""
-                    UPDATE portfolio_users 
-                    SET last_known_balance = $1,
-                        last_balance_check = CURRENT_TIMESTAMP
-                    WHERE api_key = $2
-                """, float(balance), api_key)
-            except Exception:
-                pass  # portfolio_users might not exist
 
 
     async def get_balance_summary(
@@ -534,8 +490,6 @@ class BalanceChecker:
     ) -> dict:
         """
         Get comprehensive balance summary for a user
-        
-        CONSOLIDATED: Uses follower_users, falls back to portfolio_users
         """
         async with self.db_pool.acquire() as conn:
             # Get user ID from follower_users
@@ -550,22 +504,9 @@ class BalanceChecker:
             
             user_id = user_row['id']
             
-            # Try to get initial capital from follower_users first
+            # Get initial capital from follower_users
             initial = float(user_row['initial_capital'] or 0)
             current = float(user_row['last_known_balance'] or 0)
-            
-            # Fallback to portfolio_users if not set
-            if initial == 0:
-                pu_row = await conn.fetchrow("""
-                    SELECT initial_capital, last_known_balance, last_balance_check
-                    FROM portfolio_users
-                    WHERE api_key = $1
-                """, api_key)
-                
-                if pu_row:
-                    initial = float(pu_row['initial_capital'] or 0)
-                    if current == 0:
-                        current = float(pu_row['last_known_balance'] or initial)
             
             if initial == 0:
                 return None
@@ -603,17 +544,6 @@ class BalanceChecker:
             net_deposits = deposits - withdrawals
             total_capital = initial + net_deposits
             
-            # Get last balance check time
-            last_check = None
-            try:
-                last_check_row = await conn.fetchrow("""
-                    SELECT last_balance_check FROM portfolio_users WHERE api_key = $1
-                """, api_key)
-                if last_check_row:
-                    last_check = last_check_row['last_balance_check']
-            except Exception:
-                pass
-            
             return {
                 'initial_capital': initial,
                 'total_deposits': deposits,
@@ -624,7 +554,7 @@ class BalanceChecker:
                 'current_value': current,
                 'roi_on_initial': (profit / initial * 100) if initial > 0 else 0,
                 'roi_on_total': (profit / total_capital * 100) if total_capital > 0 else 0,
-                'last_balance_check': last_check
+                'last_balance_check': None
             }
 
 
