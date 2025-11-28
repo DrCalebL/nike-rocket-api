@@ -378,7 +378,9 @@ class BillingServiceV2:
                 charge_id = data['id']
                 hosted_url = data['hosted_url']
                 charge_code = data['code']
-                expires_at = datetime.fromisoformat(data['expires_at'].replace('Z', '+00:00'))
+                # Parse expires_at and convert to naive datetime (strip timezone)
+                expires_at_str = data['expires_at'].replace('Z', '+00:00')
+                expires_at = datetime.fromisoformat(expires_at_str).replace(tzinfo=None)
                 
                 # Record invoice in database
                 async with self.db_pool.acquire() as conn:
