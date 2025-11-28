@@ -63,6 +63,9 @@ from tax_reports import (
 # Import billing service for automated invoicing and payment collection
 from billing_service import BillingService, start_billing_scheduler
 
+# Import trade reconciliation for backfilling historical trades
+from trade_reconciliation import reconcile_single_user, reconcile_all_users
+
 # Initialize FastAPI
 app = FastAPI(
     title="Nike Rocket Follower API",
@@ -143,7 +146,9 @@ async def root():
             "pay": "/api/pay/{api_key}",
             "webhook": "/api/payments/webhook",
             "billing_summary": "/api/admin/billing/summary",
-            "process_billing": "/api/admin/billing/process-monthly"
+            "process_billing": "/api/admin/billing/process-monthly",
+            "reconcile_trades": "/api/admin/reconcile-trades/{user_id}",
+            "reconcile_all": "/api/admin/reconcile-all-trades"
         },
         "user_links": {
             "new_users": "Visit /signup to create an account",
@@ -900,6 +905,56 @@ async def admin_restore_access(user_id: int, password: str = ""):
         }
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TRADE RECONCILIATION ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/admin/reconcile-trades/{user_id}")
+async def admin_reconcile_user_trades(user_id: int, password: str = ""):
+    """
+    Reconcile trades for a specific user
+    
+    Reads closed trades from Kraken history and backfills into portfolio_trades.
+    Use this to fix missing P&L tracking for historical trades.
+    
+    Auth: Admin password required
+    """
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        await reconcile_single_user(user_id)
+        return {
+            "status": "success",
+            "message": f"Trade reconciliation complete for user {user_id}"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/reconcile-all-trades")
+async def admin_reconcile_all_trades(password: str = ""):
+    """
+    Reconcile trades for ALL users
+    
+    Reads closed trades from Kraken history and backfills into portfolio_trades.
+    This may take several minutes for many users.
+    
+    Auth: Admin password required
+    """
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        await reconcile_all_users()
+        return {
+            "status": "success",
+            "message": "Trade reconciliation complete for all users"
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
