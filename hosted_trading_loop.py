@@ -1,6 +1,6 @@
 """
-Nike Rocket - Hosted Trading Loop
-==================================
+Nike Rocket - Hosted Trading Loop (30-Day Billing)
+===================================================
 Background task that polls for signals and executes trades for ALL active users.
 Runs on Railway as part of main.py startup.
 
@@ -11,6 +11,7 @@ Features:
 - Calculates position size (2% risk formula)
 - Executes 3-order bracket (Entry + TP + SL)
 - Logs all activity for admin dashboard
+- ENFORCES 30-DAY BILLING: Skips users with overdue invoices
 
 OPTIMIZED:
 - Batched signal fetching (1 query instead of N queries)
@@ -18,7 +19,7 @@ OPTIMIZED:
 - Scales to 100+ users without hitting rate limits
 
 Author: Nike Rocket Team
-Updated: November 27, 2025
+Updated: November 28, 2025 - 30-Day Billing Enforcement
 """
 
 import asyncio
@@ -128,6 +129,11 @@ class HostedTradingLoop:
                 WHERE agent_active = true
                 AND credentials_set = true
                 AND access_granted = true
+                AND (
+                    pending_invoice_id IS NULL 
+                    OR invoice_due_date IS NULL 
+                    OR invoice_due_date > CURRENT_TIMESTAMP
+                )
             """)
             
             return [dict(row) for row in rows]
@@ -163,6 +169,11 @@ class HostedTradingLoop:
                 WHERE u.agent_active = true
                   AND u.credentials_set = true
                   AND u.access_granted = true
+                  AND (
+                      u.pending_invoice_id IS NULL 
+                      OR u.invoice_due_date IS NULL 
+                      OR u.invoice_due_date > CURRENT_TIMESTAMP
+                  )
                   AND sd.acknowledged = false
                   AND s.created_at > NOW() - INTERVAL '15 minutes'
                 ORDER BY s.created_at DESC
