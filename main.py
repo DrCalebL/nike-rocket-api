@@ -1988,47 +1988,47 @@ async def portfolio_dashboard(request: Request):
             
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-label">ROI on Initial Capital</div>
+                    <div class="stat-label" id="label-roi-initial">ROI on Initial Capital</div>
                     <div class="stat-value" id="roi-initial">0%</div>
                 </div>
                 
                 <div class="stat-card">
-                    <div class="stat-label">ROI on Total Capital</div>
+                    <div class="stat-label" id="label-roi-total">ROI on Total Capital</div>
                     <div class="stat-value" id="roi-total">0%</div>
                 </div>
                 
                 <div class="stat-card">
-                    <div class="stat-label">Profit Factor</div>
+                    <div class="stat-label">Profit Factor <span style="opacity: 0.6; font-size: 11px;">(All Time)</span></div>
                     <div class="stat-value" id="profit-factor">0x</div>
                 </div>
                 
                 <div class="stat-card">
-                    <div class="stat-label">Best Trade</div>
+                    <div class="stat-label" id="label-best-trade">Best Trade</div>
                     <div class="stat-value" id="best-trade">$0</div>
                 </div>
                 
                 <div class="stat-card">
-                    <div class="stat-label">Avg Trade</div>
+                    <div class="stat-label" id="label-avg-trade">Avg Trade</div>
                     <div class="stat-value" id="avg-trade">$0</div>
                 </div>
                 
                 <div class="stat-card">
-                    <div class="stat-label">Total Trades</div>
+                    <div class="stat-label" id="label-total-trades">Total Trades</div>
                     <div class="stat-value" id="total-trades">0</div>
                 </div>
                 
                 <div class="stat-card">
-                    <div class="stat-label">Max Drawdown</div>
+                    <div class="stat-label" id="label-max-dd">Max Drawdown</div>
                     <div class="stat-value" id="max-dd">0%</div>
                 </div>
                 
                 <div class="stat-card">
-                    <div class="stat-label">Sharpe Ratio</div>
+                    <div class="stat-label">Sharpe Ratio <span style="opacity: 0.6; font-size: 11px;">(All Time)</span></div>
                     <div class="stat-value" id="sharpe">0.0</div>
                 </div>
                 
                 <div class="stat-card">
-                    <div class="stat-label">Days Active</div>
+                    <div class="stat-label">Days Active <span style="opacity: 0.6; font-size: 11px;">(All Time)</span></div>
                     <div class="stat-value" id="days-active">0</div>
                 </div>
             </div>
@@ -2456,7 +2456,30 @@ async def portfolio_dashboard(request: Request):
                     : `-$${{Math.abs(totalProfit).toLocaleString()}}`;
             document.getElementById('total-profit').style.color = totalProfit >= 0 ? '#10b981' : '#ef4444';
             
-            // Handle negative ROI values
+            // ═══════════════════════════════════════════════════════════════
+            // PERIOD-SPECIFIC LABELS
+            // ═══════════════════════════════════════════════════════════════
+            const periodLabels = {{
+                '7d': '7D',
+                '30d': '30D',
+                '90d': '90D',
+                '1y': '1Y',
+                'all': 'All Time'
+            }};
+            const periodTag = `<span style="opacity: 0.6; font-size: 11px;">(${{periodLabels[currentPeriod] || '30D'}})</span>`;
+            
+            // Update period-specific labels
+            document.getElementById('label-roi-initial').innerHTML = `ROI on Initial Capital ${{periodTag}}`;
+            document.getElementById('label-roi-total').innerHTML = `ROI on Total Capital ${{periodTag}}`;
+            document.getElementById('label-best-trade').innerHTML = `Best Trade ${{periodTag}}`;
+            document.getElementById('label-avg-trade').innerHTML = `Avg Trade ${{periodTag}}`;
+            document.getElementById('label-total-trades').innerHTML = `Total Trades ${{periodTag}}`;
+            document.getElementById('label-max-dd').innerHTML = `Max Drawdown ${{periodTag}}`;
+            
+            // ═══════════════════════════════════════════════════════════════
+            // PERIOD-SPECIFIC VALUES
+            // ═══════════════════════════════════════════════════════════════
+            // Handle negative ROI values (period-specific)
             const roiInitial = stats.roi_on_initial || 0;
             const roiTotal = stats.roi_on_total || roiInitial;
             document.getElementById('roi-initial').textContent = 
@@ -2466,43 +2489,50 @@ async def portfolio_dashboard(request: Request):
                 roiTotal >= 0 ? `+${{roiTotal.toFixed(1)}}%` : `${{roiTotal.toFixed(1)}}%`;
             document.getElementById('roi-total').style.color = roiTotal >= 0 ? '#10b981' : '#ef4444';
             
-            // FIXED: Handle infinite profit factor (no losses)
-            if (stats.profit_factor === null) {{
-                document.getElementById('profit-factor').textContent = '∞';
-                document.getElementById('profit-factor').style.color = '#10b981';
-            }} else {{
-                document.getElementById('profit-factor').textContent = `${{stats.profit_factor}}x`;
-                document.getElementById('profit-factor').style.color = stats.profit_factor >= 1 ? '#10b981' : '#ef4444';
-            }}
-            
-            // Handle negative best trade (worst "best" trade)
+            // Handle negative best trade (period-specific)
             const bestTrade = stats.best_trade || 0;
             document.getElementById('best-trade').textContent = 
                 bestTrade >= 0 ? `+$${{bestTrade.toLocaleString()}}` : `-$${{Math.abs(bestTrade).toLocaleString()}}`;
             document.getElementById('best-trade').style.color = bestTrade >= 0 ? '#10b981' : '#ef4444';
             
-            // Handle negative avg trade
+            // Handle negative avg trade (period-specific)
             const avgTrade = stats.avg_trade || 0;
             document.getElementById('avg-trade').textContent = 
                 avgTrade >= 0 ? `+$${{avgTrade.toLocaleString()}}` : `-$${{Math.abs(avgTrade).toLocaleString()}}`;
             document.getElementById('avg-trade').style.color = avgTrade >= 0 ? '#10b981' : '#ef4444';
             
+            // Total trades (period-specific)
             document.getElementById('total-trades').textContent = stats.total_trades;
             
-            // FIXED: Max drawdown display (no minus for 0%)
+            // Max drawdown (period-specific, no minus for 0%)
             const maxDD = stats.max_drawdown || 0;
             document.getElementById('max-dd').textContent = maxDD > 0 ? `-${{maxDD}}%` : `0%`;
             
-            // FIXED: Handle Sharpe ratio null (not calculable with <2 trades)
-            if (stats.sharpe_ratio === null) {{
+            // ═══════════════════════════════════════════════════════════════
+            // ALL-TIME VALUES (Profit Factor, Sharpe Ratio, Days Active)
+            // ═══════════════════════════════════════════════════════════════
+            // Profit Factor (all-time)
+            if (stats.all_time_profit_factor === null) {{
+                document.getElementById('profit-factor').textContent = '∞';
+                document.getElementById('profit-factor').style.color = '#10b981';
+            }} else {{
+                const pf = stats.all_time_profit_factor || 0;
+                document.getElementById('profit-factor').textContent = `${{pf}}x`;
+                document.getElementById('profit-factor').style.color = pf >= 1 ? '#10b981' : '#ef4444';
+            }}
+            
+            // Sharpe ratio (all-time)
+            if (stats.all_time_sharpe === null) {{
                 document.getElementById('sharpe').textContent = 'N/A';
                 document.getElementById('sharpe').style.color = '#9ca3af';
             }} else {{
-                document.getElementById('sharpe').textContent = stats.sharpe_ratio.toFixed(1);
-                document.getElementById('sharpe').style.color = stats.sharpe_ratio >= 1 ? '#10b981' : (stats.sharpe_ratio >= 0 ? '#fbbf24' : '#ef4444');
+                const sharpe = stats.all_time_sharpe || 0;
+                document.getElementById('sharpe').textContent = sharpe.toFixed(1);
+                document.getElementById('sharpe').style.color = sharpe >= 1 ? '#10b981' : (sharpe >= 0 ? '#fbbf24' : '#ef4444');
             }}
             
-            document.getElementById('days-active').textContent = stats.days_active || '< 1';
+            // Days active (all-time)
+            document.getElementById('days-active').textContent = stats.all_time_days_active || '< 1';
             
             if (stats.started_tracking) {{
                 const startDate = new Date(stats.started_tracking);
