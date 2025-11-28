@@ -584,6 +584,14 @@ class BalanceChecker:
             """, user_id)
             profit = float(profit_result or 0)
             
+            # Get when user started tracking (first trade or portfolio init)
+            started_tracking = await conn.fetchval("""
+                SELECT COALESCE(
+                    (SELECT MIN(opened_at) FROM trades WHERE user_id = $1),
+                    (SELECT started_tracking_at FROM follower_users WHERE id = $1)
+                )
+            """, user_id)
+            
             # If current_value is 0 or None, recalculate from components
             if current == 0:
                 current = initial + deposits - withdrawals + profit
@@ -601,6 +609,7 @@ class BalanceChecker:
                 'current_value': current,
                 'roi_on_initial': (profit / initial * 100) if initial > 0 else 0,
                 'roi_on_total': (profit / total_capital * 100) if total_capital > 0 else 0,
+                'started_tracking': started_tracking.isoformat() if started_tracking else None,
                 'last_balance_check': None
             }
 
