@@ -142,37 +142,45 @@ class BalanceChecker:
         
         IMPROVED: Better logic to distinguish trading losses/fees from actual withdrawals
         ISSUE #3 FIX: Also checks exchange transaction history
+        
+        CRITICAL FIX: 
+        - Uses CASH BALANCE for deposit/withdrawal detection (excludes unrealized P&L)
+        - Uses TOTAL EQUITY for dashboard display (includes unrealized P&L)
+        This prevents false deposit/withdrawal records when unrealized P&L changes
         """
         
-        # Get current Kraken balance
-        current_balance = await self.get_kraken_balance(
+        # Get current Kraken balance (returns both cash and equity)
+        balance_info = await self.get_kraken_balance(
             kraken_api_key, 
             kraken_api_secret
         )
         
-        if current_balance is None:
+        if balance_info is None:
             logger.warning(f"Could not get Kraken balance for {api_key[:15]}...")
             return
+        
+        cash_balance = balance_info['cash_balance']
+        total_equity = balance_info['total_equity']
         
         # Calculate expected balance (includes trading P&L)
         expected_balance = await self.calculate_expected_balance(user_id, api_key)
         
-        # Check for significant discrepancy
+        # Check for significant discrepancy using CASH BALANCE (not total equity)
+        # This prevents false deposit/withdrawal detection from unrealized P&L changes
         # Use larger threshold ($5) to avoid false positives from:
         # - Trading fees
         # - Slippage
-        # - Small unrealized P&L changes
         # - Funding fees
-        discrepancy = abs(float(current_balance) - float(expected_balance))
+        discrepancy = abs(float(cash_balance) - float(expected_balance))
         
         # Only flag as deposit/withdrawal if discrepancy is significant
         if discrepancy > 5.0:
-            transaction_type = 'deposit' if current_balance > expected_balance else 'withdrawal'
-            amount = abs(current_balance - expected_balance)
+            transaction_type = 'deposit' if cash_balance > expected_balance else 'withdrawal'
+            amount = abs(cash_balance - expected_balance)
             
             logger.info(
                 f"💰 Detected {transaction_type} for {api_key[:10]}...: "
-                f"Expected ${expected_balance:.2f}, Actual ${current_balance:.2f}, "
+                f"Expected ${expected_balance:.2f}, Cash ${cash_balance:.2f}, "
                 f"Difference: ${amount:.2f}"
             )
             
@@ -190,7 +198,7 @@ class BalanceChecker:
                 f"(likely fees/slippage, not recording as transaction)"
             )
         else:
-            logger.info(f"✅ User {api_key[:10]}...: Balance ${current_balance:.2f} matches expected")
+            logger.info(f"✅ User {api_key[:10]}...: Cash ${cash_balance:.2f} matches expected")
         
         # ISSUE #3 FIX: Also check exchange transaction history
         # This catches transactions that balance-based detection might miss
@@ -200,8 +208,9 @@ class BalanceChecker:
         if exchange_txs:
             logger.info(f"   Found {len(exchange_txs)} transactions via exchange API")
         
-        # Update last known balance
-        await self.update_last_known_balance(user_id, api_key, current_balance)
+        # Update last known balance with TOTAL EQUITY (for dashboard display)
+        await self.update_last_known_balance(user_id, api_key, total_equity)
+        logger.info(f"   📊 Updated last_known_balance to ${total_equity:.2f} (total equity)")
     
     
     # ==================== ISSUE #3 FIX: Check Exchange Transaction History ====================
@@ -321,16 +330,17 @@ class BalanceChecker:
         self, 
         api_key: str, 
         api_secret: str
-    ) -> Decimal:
+    ) -> dict:
         """
-        Get current TOTAL EQUITY from Kraken FUTURES account using CCXT
+        Get current balance info from Kraken FUTURES account using CCXT
         
-        UPDATED: Now returns total equity (cash + unrealized P&L) instead of just cash balance
-        This matches Kraken's "Total value" display
+        Returns dict with:
+        - cash_balance: USD cash only (for deposit/withdrawal detection)
+        - total_equity: Cash + unrealized P&L (for dashboard display)
         
-        Strategy:
-        1. Try to get portfolioValue from flex account (includes unrealized P&L)
-        2. If not found, manually calculate: cash + (entry - mark) * contracts
+        IMPORTANT: 
+        - Use cash_balance for comparing expected vs actual (deposit/withdrawal detection)
+        - Use total_equity for dashboard display (matches Kraken's "Total value")
         """
         try:
             import ccxt
@@ -356,36 +366,7 @@ class BalanceChecker:
             total_equity = None
             usd_cash = 0
             
-            # Try to get portfolio value from raw info (includes unrealized P&L)
-            if balance.get('info'):
-                info = balance['info']
-                logger.info(f"🔍 Balance info keys: {list(info.keys()) if isinstance(info, dict) else 'not a dict'}")
-                
-                if isinstance(info, dict):
-                    # Log accounts structure for debugging
-                    if 'accounts' in info:
-                        acc_keys = list(info['accounts'].keys())
-                        logger.info(f"🔍 Accounts available: {acc_keys}")
-                        
-                        # Check each account for portfolio value
-                        for acc_name in ['flex', 'fi_xbtusd', 'cash']:
-                            if acc_name in info['accounts']:
-                                acc_data = info['accounts'][acc_name]
-                                if isinstance(acc_data, dict):
-                                    # Try various field names for portfolio value
-                                    pv = (
-                                        acc_data.get('portfolioValue') or
-                                        acc_data.get('pv') or
-                                        acc_data.get('balanceValue') or
-                                        acc_data.get('balance_value') or
-                                        acc_data.get('equity')
-                                    )
-                                    if pv and float(pv) > 0:
-                                        total_equity = float(pv)
-                                        logger.info(f"✅ Got portfolio value from {acc_name}: ${total_equity:.2f}")
-                                        break
-            
-            # Get USD cash balance
+            # Get USD cash balance first
             if 'USD' in balance:
                 usd_info = balance['USD']
                 if isinstance(usd_info, dict):
@@ -397,55 +378,39 @@ class BalanceChecker:
                 if isinstance(total_info, dict):
                     usd_cash = float(total_info.get('USD', 0) or 0)
             
-            # If we found portfolio value, use it
-            if total_equity is not None and total_equity > 0:
-                logger.info(f"✅ Kraken Futures Total Equity: ${total_equity:.2f}")
-                return Decimal(str(total_equity))
+            logger.info(f"💵 Cash balance: ${usd_cash:.2f}")
             
-            # Fallback: Calculate manually from positions
-            unrealized_pnl = 0
-            try:
-                positions = await asyncio.to_thread(exchange.fetch_positions)
-                for pos in positions:
-                    contracts = float(pos.get('contracts', 0) or 0)
-                    if pos and contracts != 0:
-                        symbol = pos.get('symbol')
-                        side = (pos.get('side') or '').lower()
-                        
-                        # Get entry price from position or raw info
-                        entry_price = pos.get('entryPrice')
-                        if entry_price is None and pos.get('info'):
-                            entry_price = pos['info'].get('price')
-                        entry_price = float(entry_price or 0)
-                        
-                        # Get mark price - if not available, fetch current price
-                        mark_price = pos.get('markPrice')
-                        if mark_price is None or mark_price == 0:
-                            try:
-                                ticker = await asyncio.to_thread(exchange.fetch_ticker, symbol)
-                                mark_price = ticker.get('last') or ticker.get('close')
-                                logger.info(f"   📈 Fetched current price for {symbol}: ${float(mark_price or 0):.4f}")
-                            except:
-                                pass
-                        mark_price = float(mark_price or 0)
-                        
-                        if entry_price > 0 and mark_price > 0:
-                            if side == 'short':
-                                pnl = (entry_price - mark_price) * contracts
-                            else:
-                                pnl = (mark_price - entry_price) * contracts
-                            
-                            unrealized_pnl += pnl
-                            logger.info(f"📊 Position {symbol}: {side} {contracts:.2f} @ entry ${entry_price:.4f}, mark ${mark_price:.4f} = P&L ${pnl:.2f}")
-                        else:
-                            logger.warning(f"⚠️ Position {symbol}: missing prices (entry={entry_price}, mark={mark_price})")
-                            
-            except Exception as e:
-                logger.warning(f"⚠️ Could not calculate unrealized P&L: {e}")
+            # Try to get portfolio value from raw info (includes unrealized P&L)
+            if balance.get('info'):
+                info = balance['info']
+                
+                if isinstance(info, dict) and 'accounts' in info:
+                    # Check flex account for portfolio value
+                    flex = info['accounts'].get('flex', {})
+                    if flex and isinstance(flex, dict):
+                        # Try various field names for portfolio value
+                        pv = (
+                            flex.get('portfolioValue') or
+                            flex.get('pv') or
+                            flex.get('balanceValue') or
+                            flex.get('balance_value') or
+                            flex.get('equity')
+                        )
+                        if pv and float(pv) > 0:
+                            total_equity = float(pv)
+                            logger.info(f"📊 Portfolio value (flex): ${total_equity:.2f}")
             
-            total_equity = usd_cash + unrealized_pnl
-            logger.info(f"✅ Kraken Futures: Cash ${usd_cash:.2f} + Unrealized ${unrealized_pnl:.2f} = Total ${total_equity:.2f}")
-            return Decimal(str(total_equity))
+            # If no portfolio value found, use cash balance
+            if total_equity is None or total_equity == 0:
+                total_equity = usd_cash
+                logger.info(f"⚠️ No portfolio value found, using cash balance")
+            
+            logger.info(f"✅ Kraken Futures: Cash ${usd_cash:.2f}, Total Equity ${total_equity:.2f}")
+            
+            return {
+                'cash_balance': Decimal(str(usd_cash)),
+                'total_equity': Decimal(str(total_equity))
+            }
             
         except Exception as e:
             logger.error(f"❌ Error fetching Kraken balance: {e}")
