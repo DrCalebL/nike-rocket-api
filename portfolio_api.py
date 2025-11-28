@@ -101,7 +101,7 @@ async def initialize_portfolio_autodetect(request: Request):
     """
     Initialize portfolio tracking - AUTO-DETECTS initial capital from Kraken
     
-    CONSOLIDATED: Updates both follower_users (primary) and portfolio_users (backwards compat)
+    SIMPLIFIED: Only uses follower_users table
     """
     api_key = request.headers.get("X-API-Key")
     
@@ -124,19 +124,14 @@ async def initialize_portfolio_autodetect(request: Request):
                 "message": "Please set up your trading agent first."
             }
         
-        # Check if already initialized in either table
-        existing = await conn.fetchrow(
-            "SELECT * FROM portfolio_users WHERE api_key = $1",
-            api_key
-        )
-        
+        # Check if already initialized in follower_users
         fu_existing = await conn.fetchrow(
             "SELECT portfolio_initialized, initial_capital FROM follower_users WHERE api_key = $1",
             api_key
         )
         
-        if existing or (fu_existing and fu_existing['portfolio_initialized']):
-            initial_cap = existing['initial_capital'] if existing else fu_existing['initial_capital']
+        if fu_existing and fu_existing['portfolio_initialized']:
+            initial_cap = fu_existing['initial_capital']
             await conn.close()
             return {
                 "status": "already_initialized",
@@ -173,7 +168,7 @@ async def initialize_portfolio_autodetect(request: Request):
         
         initial_capital = float(kraken_balance)
         
-        # CONSOLIDATED: Update follower_users (primary source of truth)
+        # Update follower_users (primary source of truth)
         await conn.execute("""
             UPDATE follower_users SET
                 initial_capital = $1,
@@ -182,13 +177,6 @@ async def initialize_portfolio_autodetect(request: Request):
                 started_tracking_at = CURRENT_TIMESTAMP
             WHERE api_key = $2
         """, initial_capital, api_key)
-        
-        # BACKWARDS COMPAT: Also insert into portfolio_users
-        await conn.execute("""
-            INSERT INTO portfolio_users (api_key, initial_capital, created_at, last_known_balance)
-            VALUES ($1, $2, CURRENT_TIMESTAMP, $2)
-            ON CONFLICT (api_key) DO NOTHING
-        """, api_key, initial_capital)
         
         # Get user_id for proper FK
         user_id = await conn.fetchval(
