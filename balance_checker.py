@@ -368,11 +368,41 @@ class BalanceChecker:
                 positions = await asyncio.to_thread(exchange.fetch_positions)
                 for pos in positions:
                     if pos and pos.get('contracts', 0) != 0:
-                        pnl = float(pos.get('unrealizedPnl', 0) or 0)
+                        # Try multiple field names - CCXT varies by exchange
+                        pnl = (
+                            pos.get('unrealizedPnl') or 
+                            pos.get('unrealisedPnl') or  # British spelling
+                            pos.get('unRealizedProfit') or
+                            pos.get('unrealized_pnl') or
+                            pos.get('pnl') or
+                            0
+                        )
+                        
+                        # Also check nested 'info' dict (raw exchange response)
+                        if pnl == 0 and pos.get('info'):
+                            info = pos['info']
+                            pnl = (
+                                info.get('unrealizedPnl') or
+                                info.get('unrealisedPnl') or
+                                info.get('pnl') or
+                                info.get('unrealized_funding') or
+                                0
+                            )
+                        
+                        pnl = float(pnl or 0)
                         unrealized_pnl += pnl
-                        logger.info(f"📊 Position {pos.get('symbol')}: unrealized P&L ${pnl:.2f}")
+                        
+                        # Debug: log position structure on first run
+                        logger.info(f"📊 Position {pos.get('symbol')}: contracts={pos.get('contracts')}, unrealized P&L=${pnl:.2f}")
+                        if pnl == 0:
+                            # Log available keys to debug
+                            logger.info(f"   Position keys: {list(pos.keys())}")
+                            if pos.get('info'):
+                                logger.info(f"   Info keys: {list(pos['info'].keys())[:10]}...")
             except Exception as e:
                 logger.warning(f"⚠️ Could not fetch positions for unrealized P&L: {e}")
+                import traceback
+                traceback.print_exc()
             
             # Total equity = cash + unrealized P&L
             total_equity = usd_cash + unrealized_pnl
