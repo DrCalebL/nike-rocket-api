@@ -102,25 +102,48 @@ async def get_kraken_credentials(api_key: str):
 
 
 async def get_current_kraken_balance(kraken_key: str, kraken_secret: str):
-    """Get current USDT balance from Kraken"""
+    """Get current USD balance from Kraken Futures using CCXT"""
     try:
-        import krakenex
-        from pykrakenapi import KrakenAPI
+        import ccxt
+        import asyncio
         
-        kraken = krakenex.API(key=kraken_key, secret=kraken_secret)
-        k = KrakenAPI(kraken)
-        balance = k.get_account_balance()
+        # Use Kraken Futures (same as balance_checker)
+        exchange = ccxt.krakenfutures({
+            'apiKey': kraken_key,
+            'secret': kraken_secret,
+            'enableRateLimit': True,
+        })
         
-        usdt_balance = 0
-        for currency in ['USDT', 'ZUSD', 'USD']:
-            if currency in balance.index:
-                usdt_balance = float(balance.loc[currency]['vol'])
-                break
+        # Fetch balance in thread (ccxt is sync)
+        balance = await asyncio.to_thread(exchange.fetch_balance)
         
-        return Decimal(str(usdt_balance))
+        # Get USD balance - try multiple fields
+        usd_balance = 0
+        
+        # Check 'USD' key first
+        if 'USD' in balance:
+            usd_data = balance['USD']
+            # Try 'total' first, then 'free'
+            if isinstance(usd_data, dict):
+                usd_balance = float(usd_data.get('total') or usd_data.get('free') or 0)
+            else:
+                usd_balance = float(usd_data or 0)
+        
+        # Fallback to 'total' -> 'USD'
+        if usd_balance == 0 and 'total' in balance:
+            usd_balance = float(balance['total'].get('USD', 0) or 0)
+        
+        # Fallback to 'free' -> 'USD'  
+        if usd_balance == 0 and 'free' in balance:
+            usd_balance = float(balance['free'].get('USD', 0) or 0)
+        
+        print(f"💵 Kraken Futures balance detected: ${usd_balance:.2f}")
+        return Decimal(str(usd_balance))
         
     except Exception as e:
         print(f"Error getting Kraken balance: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
