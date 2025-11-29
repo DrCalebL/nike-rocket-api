@@ -666,16 +666,16 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
             else:
                 error_cell = '''<span class="error-indicator error-none" title="✅ No errors in last 24h">✅</span>'''
             
-            # Kraken ID display (first 8 chars or "Not Set")
-            kraken_id = user.get('kraken_id_display', None)
-            kraken_cell = f'<span class="api-key" title="{user.get("kraken_account_id", "")}">{kraken_id}</span>' if kraken_id else '<span style="color: #6b7280;">—</span>'
+            # Fingerprint display (first 8 chars or "Not Set")
+            fingerprint = user.get('kraken_id_display', None)
+            fingerprint_cell = f'<span class="api-key" title="Full: {user.get("kraken_account_id", "")}">{fingerprint}</span>' if fingerprint else '<span style="color: #6b7280;">—</span>'
             
             user_rows += f"""
             <tr>
                 <td><span class="status-badge {status_class}">{user['status_emoji']} {user['status_text']}</span></td>
                 <td style="color: #e5e7eb;">{user['email']}</td>
                 <td class="api-key">{user['api_key'][:15]}...</td>
-                <td>{kraken_cell}</td>
+                <td>{fingerprint_cell}</td>
                 <td style="color: #e5e7eb;">${user.get('capital', 0):.2f}</td>
                 <td style="color: #e5e7eb;">{user['total_trades']}</td>
                 <td class="{profit_class}">{profit_prefix}${abs(user['total_profit']):.2f}</td>
@@ -1577,7 +1577,7 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
                         <th>Status</th>
                         <th>Email</th>
                         <th>API Key</th>
-                        <th>Kraken ID</th>
+                        <th>Fingerprint</th>
                         <th>Capital</th>
                         <th>Trades</th>
                         <th>Profit</th>
