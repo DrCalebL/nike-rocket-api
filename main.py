@@ -828,6 +828,130 @@ async def admin_check_overdue(password: str = ""):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# KRAKEN ACCOUNT ID BACKFILL (One-time admin utility)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/admin/backfill-kraken-ids")
+async def admin_backfill_kraken_ids(password: str = ""):
+    """
+    One-time backfill: Populate kraken_account_id for existing users
+    
+    This fetches the Kraken account UID for all users who have credentials
+    set but don't have a kraken_account_id yet.
+    
+    Run this ONCE after deploying the anti-abuse feature.
+    
+    Auth: Admin password required
+    """
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    import ccxt
+    import hashlib
+    from cryptography.fernet import Fernet
+    
+    ENCRYPTION_KEY = os.getenv("CREDENTIALS_ENCRYPTION_KEY")
+    if not ENCRYPTION_KEY:
+        raise HTTPException(status_code=500, detail="CREDENTIALS_ENCRYPTION_KEY not set")
+    
+    cipher = Fernet(ENCRYPTION_KEY.encode())
+    
+    results = {
+        "success": [],
+        "failed": [],
+        "skipped": []
+    }
+    
+    try:
+        db_pool = await asyncpg.create_pool(DATABASE_URL)
+        
+        async with db_pool.acquire() as conn:
+            # Get users with credentials but no kraken_account_id
+            users = await conn.fetch("""
+                SELECT id, email, api_key, kraken_api_key_encrypted, kraken_api_secret_encrypted
+                FROM follower_users
+                WHERE credentials_set = true
+                  AND kraken_api_key_encrypted IS NOT NULL
+                  AND kraken_api_secret_encrypted IS NOT NULL
+                  AND (kraken_account_id IS NULL OR kraken_account_id = '')
+            """)
+            
+            if not users:
+                await db_pool.close()
+                return {
+                    "status": "success",
+                    "message": "No users need backfilling",
+                    "results": results
+                }
+            
+            for user in users:
+                user_id = user['id']
+                email = user['email']
+                
+                try:
+                    # Decrypt credentials
+                    kraken_key = cipher.decrypt(user['kraken_api_key_encrypted'].encode()).decode()
+                    kraken_secret = cipher.decrypt(user['kraken_api_secret_encrypted'].encode()).decode()
+                    
+                    # Create exchange instance
+                    exchange = ccxt.krakenfutures({
+                        'apiKey': kraken_key,
+                        'secret': kraken_secret,
+                        'enableRateLimit': True,
+                    })
+                    
+                    # Try to get account UID
+                    account_uid = None
+                    
+                    try:
+                        log_response = exchange.privateGetAccountlogGet({'count': 1})
+                        if 'accountUid' in log_response:
+                            account_uid = log_response['accountUid']
+                    except Exception:
+                        pass
+                    
+                    if not account_uid:
+                        # Fallback: validate credentials and use API key hash
+                        exchange.fetch_balance()
+                        api_key_hash = hashlib.sha256(kraken_key.encode()).hexdigest()[:36]
+                        account_uid = f"{api_key_hash[:8]}-{api_key_hash[8:12]}-{api_key_hash[12:16]}-{api_key_hash[16:20]}-{api_key_hash[20:32]}"
+                    
+                    # Update database
+                    await conn.execute("""
+                        UPDATE follower_users
+                        SET kraken_account_id = $1
+                        WHERE id = $2
+                    """, account_uid, user_id)
+                    
+                    results["success"].append({
+                        "email": email,
+                        "kraken_id": account_uid[:20] + "..."
+                    })
+                    
+                except ccxt.AuthenticationError as e:
+                    results["failed"].append({
+                        "email": email,
+                        "error": f"Invalid credentials: {str(e)[:50]}"
+                    })
+                except Exception as e:
+                    results["failed"].append({
+                        "email": email,
+                        "error": str(e)[:100]
+                    })
+        
+        await db_pool.close()
+        
+        return {
+            "status": "success",
+            "message": f"Backfill complete: {len(results['success'])} success, {len(results['failed'])} failed",
+            "results": results
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/admin/billing/summary")
 async def admin_billing_summary(password: str = ""):
     """
