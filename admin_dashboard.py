@@ -646,23 +646,39 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
             # Determine error severity color
             error_type = error.get('error_type', 'unknown').lower()
             
-            # Categorize error type
-            if 'auth' in error_type or 'credential' in error_type:
+            # Categorize error type (EXPANDED to catch more patterns)
+            error_type = error.get('error_type', 'unknown').lower()
+            error_msg = error.get('error_message', '').lower()
+            combined = error_type + ' ' + error_msg  # Check both for keywords
+            
+            if any(k in combined for k in ['auth', 'credential', 'decrypt', 'key_error', 'secret', 'permission', '401', 'unauthorized', 'api_key', 'invalid key']):
                 border_color = '#ef4444'  # Red - authentication
                 badge_class = 'error-badge-critical'
                 error_category = 'auth'
-            elif 'network' in error_type or 'connection' in error_type or 'timeout' in error_type:
+            elif any(k in combined for k in ['network', 'connection', 'timeout', 'socket', 'dns', 'ssl', 'certificate', 'refused', 'unreachable']):
                 border_color = '#f59e0b'  # Orange - network
                 badge_class = 'error-badge-warning'
                 error_category = 'network'
-            elif 'insufficient' in error_type or 'balance' in error_type or 'funds' in error_type:
+            elif any(k in combined for k in ['insufficient', 'balance', 'funds', 'margin', 'capital', 'deposit', 'zero_balance', 'minimum']):
                 border_color = '#8b5cf6'  # Purple - funds
                 badge_class = 'error-badge-funds'
                 error_category = 'funds'
-            elif 'trade' in error_type or 'order' in error_type or 'execution' in error_type:
+            elif any(k in combined for k in ['trade', 'order', 'execution', 'position', 'fill', 'market', 'limit', 'portfolio', 'init']):
                 border_color = '#3b82f6'  # Blue - trade
                 badge_class = 'error-badge-info'
                 error_category = 'trade'
+            elif any(k in combined for k in ['database', 'sql', 'table', 'column', 'relation', 'asyncpg', 'postgres', 'undefined', 'does not exist']):
+                border_color = '#ec4899'  # Pink - database
+                badge_class = 'error-badge-database'
+                error_category = 'database'
+            elif any(k in combined for k in ['module', 'import', 'attribute', 'typeerror', 'valueerror', 'keyerror', 'index', 'syntax']):
+                border_color = '#06b6d4'  # Cyan - code/system
+                badge_class = 'error-badge-code'
+                error_category = 'code'
+            elif any(k in combined for k in ['kraken', 'exchange', 'ccxt', 'api']):
+                border_color = '#f97316'  # Orange-red - exchange
+                badge_class = 'error-badge-exchange'
+                error_category = 'exchange'
             else:
                 border_color = '#6b7280'  # Gray - other
                 badge_class = 'error-badge-info'
@@ -956,6 +972,9 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
         .legend-dot.critical {{ background: #ef4444; }}
         .legend-dot.warning {{ background: #f59e0b; }}
         .legend-dot.funds {{ background: #8b5cf6; }}
+        .legend-dot.database {{ background: #ec4899; }}
+        .legend-dot.code {{ background: #06b6d4; }}
+        .legend-dot.exchange {{ background: #f97316; }}
         .legend-dot.info {{ background: #6b7280; }}
         
         /* Search Box */
@@ -1154,6 +1173,9 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
         .error-badge-warning {{ background: #78350f; color: #fcd34d; }}
         .error-badge-funds {{ background: #4c1d95; color: #c4b5fd; }}
         .error-badge-info {{ background: #374151; color: #9ca3af; }}
+        .error-badge-database {{ background: #831843; color: #f9a8d4; }}
+        .error-badge-code {{ background: #164e63; color: #67e8f9; }}
+        .error-badge-exchange {{ background: #7c2d12; color: #fdba74; }}
         .error-timestamp {{ color: #6b7280; font-size: 12px; }}
         .error-message {{ color: #e5e7eb; font-size: 13px; line-height: 1.5; }}
         .error-context {{ color: #6b7280; font-size: 11px; margin-top: 8px; font-family: monospace; }}
@@ -1481,6 +1503,9 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
                     <div class="legend-item"><span class="legend-dot critical"></span> Auth/Credential</div>
                     <div class="legend-item"><span class="legend-dot warning"></span> Network/Timeout</div>
                     <div class="legend-item"><span class="legend-dot funds"></span> Insufficient Funds</div>
+                    <div class="legend-item"><span class="legend-dot database"></span> Database</div>
+                    <div class="legend-item"><span class="legend-dot code"></span> Code/System</div>
+                    <div class="legend-item"><span class="legend-dot exchange"></span> Exchange API</div>
                     <div class="legend-item"><span class="legend-dot info"></span> Other</div>
                 </div>
             </div>
@@ -1503,7 +1528,10 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
                     <option value="auth">🔴 Auth/Credential</option>
                     <option value="network">🟠 Network/Timeout</option>
                     <option value="funds">🟣 Insufficient Funds</option>
-                    <option value="trade">⚙️ Trade Execution</option>
+                    <option value="trade">🔵 Trade Execution</option>
+                    <option value="database">💗 Database</option>
+                    <option value="code">🔷 Code/System</option>
+                    <option value="exchange">🟧 Exchange API</option>
                     <option value="other">⚪ Other</option>
                 </select>
                 <button class="clear-search" onclick="clearErrorFilters()">Clear</button>
