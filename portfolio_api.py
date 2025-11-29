@@ -924,7 +924,7 @@ from fastapi.responses import StreamingResponse
 import io
 import csv
 
-@router.get("/portfolio/trades/monthly-csv")
+@router.get("/api/portfolio/trades/monthly-csv")
 async def export_monthly_trades(request: Request, key: str, year: int, month: int):
     """
     Export monthly trades as CSV for customer dashboard
@@ -1059,7 +1059,7 @@ async def export_monthly_trades(request: Request, key: str, year: int, month: in
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/portfolio/trades/yearly-csv")
+@router.get("/api/portfolio/trades/yearly-csv")
 async def export_yearly_trades(request: Request, key: str, year: int):
     """
     Export yearly trades as CSV for customer dashboard
