@@ -141,14 +141,14 @@ class PositionMonitor:
                 
                 # Look for a recent signal matching this symbol and direction
                 signal = await conn.fetchrow("""
-                    SELECT id, signal_id, symbol, direction, created_at
+                    SELECT id, signal_id, symbol, action as direction, created_at
                     FROM signals
                     WHERE UPPER(symbol) LIKE $1
-                      AND LOWER(direction) = LOWER($2)
-                      AND created_at >= NOW() - INTERVAL '%s hours'
+                      AND LOWER(action) = LOWER($2)
+                      AND created_at >= NOW() - make_interval(hours => $3)
                     ORDER BY created_at DESC
                     LIMIT 1
-                """ % lookback_hours, f'%{symbol_base}%', side)
+                """, f'%{symbol_base}%', side, lookback_hours)
                 
                 if signal:
                     self.logger.info(f"✅ Found matching signal: {signal['symbol']} {signal['direction']} (signal_id: {signal['signal_id']})")
