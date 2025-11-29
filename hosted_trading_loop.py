@@ -416,8 +416,8 @@ class HostedTradingLoop:
                 self.db_pool, user_short, "SAFETY_CHECK_ERROR",
                 str(e), {"function": "check_any_open_positions_or_orders"}
             )
-            # On error, be cautious - allow trade but log warning
-            return (False, None)
+            # On error, be CONSERVATIVE - skip trade to prevent double positions
+            return (True, f"Safety check error: {e}")
     
     async def execute_trade(self, user: Dict, signal: Dict) -> bool:
         """
