@@ -922,14 +922,17 @@ async def admin_test_kraken_uid(password: str = "", email: str = ""):
 
 
 @app.post("/api/admin/backfill-kraken-ids")
-async def admin_backfill_kraken_ids(password: str = ""):
+async def admin_backfill_kraken_ids(password: str = "", force: bool = False):
     """
-    One-time backfill: Populate kraken_account_id for existing users
+    Backfill: Generate trade history fingerprints for all users
     
-    This fetches the Kraken account UID for all users who have credentials
-    set but don't have a kraken_account_id yet.
+    Uses trade history (fill IDs, order IDs) to create a unique fingerprint
+    for each Kraken account. This fingerprint is the same regardless of
+    which API key is used.
     
-    Run this ONCE after deploying the anti-abuse feature.
+    Args:
+        password: Admin password
+        force: If True, update ALL users. If False, only update users without kraken_account_id
     
     Auth: Admin password required
     """
@@ -956,15 +959,26 @@ async def admin_backfill_kraken_ids(password: str = ""):
         db_pool = await asyncpg.create_pool(DATABASE_URL)
         
         async with db_pool.acquire() as conn:
-            # Get users with credentials but no kraken_account_id
-            users = await conn.fetch("""
-                SELECT id, email, api_key, kraken_api_key_encrypted, kraken_api_secret_encrypted
-                FROM follower_users
-                WHERE credentials_set = true
-                  AND kraken_api_key_encrypted IS NOT NULL
-                  AND kraken_api_secret_encrypted IS NOT NULL
-                  AND (kraken_account_id IS NULL OR kraken_account_id = '')
-            """)
+            # Get users based on force flag
+            if force:
+                # Update ALL users with credentials
+                users = await conn.fetch("""
+                    SELECT id, email, api_key, kraken_api_key_encrypted, kraken_api_secret_encrypted
+                    FROM follower_users
+                    WHERE credentials_set = true
+                      AND kraken_api_key_encrypted IS NOT NULL
+                      AND kraken_api_secret_encrypted IS NOT NULL
+                """)
+            else:
+                # Only users without kraken_account_id
+                users = await conn.fetch("""
+                    SELECT id, email, api_key, kraken_api_key_encrypted, kraken_api_secret_encrypted
+                    FROM follower_users
+                    WHERE credentials_set = true
+                      AND kraken_api_key_encrypted IS NOT NULL
+                      AND kraken_api_secret_encrypted IS NOT NULL
+                      AND (kraken_account_id IS NULL OR kraken_account_id = '')
+                """)
             
             if not users:
                 await db_pool.close()
@@ -990,18 +1004,64 @@ async def admin_backfill_kraken_ids(password: str = ""):
                         'enableRateLimit': True,
                     })
                     
-                    # Try to get account UID
-                    account_uid = None
+                    # ═══════════════════════════════════════════════════════════
+                    # FINGERPRINTING: Use trade history to identify account
+                    # ═══════════════════════════════════════════════════════════
+                    fingerprint_data = []
                     
+                    # Get fills (trade history)
                     try:
-                        log_response = exchange.privateGetAccountlogGet({'count': 1})
-                        if 'accountUid' in log_response:
-                            account_uid = log_response['accountUid']
+                        fills_response = exchange.privateGetFills()
+                        if isinstance(fills_response, dict) and 'fills' in fills_response:
+                            fills = fills_response['fills']
+                            for fill in fills[:50]:
+                                if isinstance(fill, dict):
+                                    fill_id = fill.get('fill_id', fill.get('fillId', ''))
+                                    trade_id = fill.get('trade_id', fill.get('tradeId', ''))
+                                    order_id = fill.get('order_id', fill.get('orderId', ''))
+                                    if fill_id:
+                                        fingerprint_data.append(f"fill:{fill_id}")
+                                    if trade_id:
+                                        fingerprint_data.append(f"trade:{trade_id}")
+                                    if order_id:
+                                        fingerprint_data.append(f"order:{order_id}")
                     except Exception:
                         pass
                     
-                    if not account_uid:
-                        # Fallback: validate credentials and use API key hash
+                    # Get open orders
+                    try:
+                        orders_response = exchange.privateGetOpenorders()
+                        if isinstance(orders_response, dict) and 'openOrders' in orders_response:
+                            for order in orders_response['openOrders'][:20]:
+                                if isinstance(order, dict):
+                                    order_id = order.get('order_id', order.get('orderId', ''))
+                                    if order_id:
+                                        fingerprint_data.append(f"open:{order_id}")
+                    except Exception:
+                        pass
+                    
+                    # Get balance info
+                    try:
+                        balance = exchange.fetch_balance()
+                        if 'info' in balance and isinstance(balance['info'], dict):
+                            accounts_info = balance['info'].get('accounts', {})
+                            if 'flex' in accounts_info:
+                                flex = accounts_info['flex']
+                                if isinstance(flex, dict) and 'balances' in flex:
+                                    for currency, amount in sorted(flex['balances'].items()):
+                                        if amount and float(amount) != 0:
+                                            fingerprint_data.append(f"bal:{currency}:{amount}")
+                    except Exception:
+                        pass
+                    
+                    # Generate fingerprint
+                    if fingerprint_data:
+                        fingerprint_data.sort()
+                        fingerprint_string = "|".join(fingerprint_data)
+                        fingerprint_hash = hashlib.sha256(fingerprint_string.encode()).hexdigest()
+                        account_uid = f"{fingerprint_hash[:8]}-{fingerprint_hash[8:12]}-{fingerprint_hash[12:16]}-{fingerprint_hash[16:20]}-{fingerprint_hash[20:32]}"
+                    else:
+                        # Fallback for new accounts with no history
                         exchange.fetch_balance()
                         api_key_hash = hashlib.sha256(kraken_key.encode()).hexdigest()[:36]
                         account_uid = f"{api_key_hash[:8]}-{api_key_hash[8:12]}-{api_key_hash[12:16]}-{api_key_hash[16:20]}-{api_key_hash[20:32]}"
@@ -1015,7 +1075,8 @@ async def admin_backfill_kraken_ids(password: str = ""):
                     
                     results["success"].append({
                         "email": email,
-                        "kraken_id": account_uid[:20] + "..."
+                        "kraken_id": account_uid[:20] + "...",
+                        "data_points": len(fingerprint_data)
                     })
                     
                 except ccxt.AuthenticationError as e:
