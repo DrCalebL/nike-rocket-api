@@ -88,69 +88,111 @@ async def fetch_kraken_account_uid(api_key: str, api_secret: str) -> tuple[str, 
             'enableRateLimit': True,
         })
         
-        # Try account log endpoint first (returns accountUid explicitly)
+        # Try different methods to get account UID
+        # Method 1: Try direct API call to accountlog endpoint
         try:
-            logger.info("🔍 Trying privateGetAccountlogGet...")
-            log_response = exchange.privateGetAccountlogGet({'count': 1})
-            logger.info(f"📋 accountlog response keys: {list(log_response.keys()) if isinstance(log_response, dict) else 'not a dict'}")
-            
-            if 'accountUid' in log_response:
-                logger.info(f"✅ Found accountUid in accountlog: {log_response['accountUid'][:20]}...")
-                return (log_response['accountUid'], None)
-            else:
-                logger.warning(f"⚠️ accountlog response has no accountUid. Full response: {str(log_response)[:300]}")
+            logger.info("🔍 Trying direct accountlog API call...")
+            # Use the raw request method to call the endpoint directly
+            response = exchange.privateGetAccountlog({'count': 1})
+            logger.info(f"📋 accountlog response keys: {list(response.keys()) if isinstance(response, dict) else 'not a dict'}")
+            if isinstance(response, dict):
+                if 'accountUid' in response:
+                    logger.info(f"✅ Found accountUid: {response['accountUid'][:20]}...")
+                    return (response['accountUid'], None)
+                # Check in logs array
+                if 'logs' in response and len(response['logs']) > 0:
+                    first_log = response['logs'][0]
+                    if 'accountUid' in first_log:
+                        logger.info(f"✅ Found accountUid in logs[0]: {first_log['accountUid'][:20]}...")
+                        return (first_log['accountUid'], None)
+                logger.warning(f"📋 accountlog full response: {str(response)[:500]}")
         except Exception as e:
-            logger.warning(f"⚠️ accountlog endpoint failed: {e}")
+            logger.warning(f"⚠️ accountlog failed: {e}")
         
-        # Try accounts endpoint
+        # Method 2: Try to get deposit address (unique per account)
+        try:
+            logger.info("🔍 Trying to fetch deposit address...")
+            # Deposit addresses are unique per Kraken account
+            deposit_address = exchange.fetch_deposit_address('USD')
+            logger.info(f"📋 deposit address response: {deposit_address}")
+            if deposit_address and 'address' in deposit_address:
+                # Use the deposit address as a unique identifier
+                addr = deposit_address['address']
+                logger.info(f"✅ Using deposit address as UID: {addr[:20]}...")
+                return (addr, None)
+        except Exception as e:
+            logger.warning(f"⚠️ fetch_deposit_address failed: {e}")
+        
+        # Method 3: Try accounts endpoint and look for any unique ID
         try:
             logger.info("🔍 Trying privateGetAccounts...")
             accounts_response = exchange.privateGetAccounts()
             logger.info(f"📋 accounts response keys: {list(accounts_response.keys()) if isinstance(accounts_response, dict) else 'not a dict'}")
-            logger.info(f"📋 accounts response sample: {str(accounts_response)[:500]}")
             
-            # Look for any UID-like fields
             if isinstance(accounts_response, dict):
+                # Look for accountUid at top level
                 if 'accountUid' in accounts_response:
                     return (accounts_response['accountUid'], None)
-                if 'uid' in accounts_response:
-                    return (accounts_response['uid'], None)
-                # Check nested 'accounts' field
+                    
+                # Look for any field containing 'uid' or 'id' at top level
+                for key in accounts_response:
+                    if 'uid' in key.lower() or key.lower() == 'id':
+                        val = accounts_response[key]
+                        if isinstance(val, str) and len(val) > 10:
+                            logger.info(f"✅ Found potential UID in {key}: {val[:20]}...")
+                            return (val, None)
+                
+                # Check nested accounts
                 if 'accounts' in accounts_response:
                     for acc_name, acc_data in accounts_response['accounts'].items():
                         if isinstance(acc_data, dict):
-                            if 'uid' in acc_data:
-                                logger.info(f"✅ Found uid in accounts.{acc_name}: {acc_data['uid'][:20]}...")
-                                return (acc_data['uid'], None)
-                            if 'accountUid' in acc_data:
-                                logger.info(f"✅ Found accountUid in accounts.{acc_name}")
-                                return (acc_data['accountUid'], None)
+                            for key in acc_data:
+                                if 'uid' in key.lower():
+                                    val = acc_data[key]
+                                    if isinstance(val, str) and len(val) > 10:
+                                        logger.info(f"✅ Found UID in accounts.{acc_name}.{key}: {val[:20]}...")
+                                        return (val, None)
         except Exception as e:
             logger.warning(f"⚠️ accounts endpoint failed: {e}")
         
-        # Try openOrders which might have account info
+        # Method 4: Try fills/history which might have account reference
         try:
-            logger.info("🔍 Trying privateGetOpenorders...")
-            orders_response = exchange.privateGetOpenorders()
-            logger.info(f"📋 openorders response keys: {list(orders_response.keys()) if isinstance(orders_response, dict) else 'not a dict'}")
-            if isinstance(orders_response, dict) and 'accountUid' in orders_response:
-                return (orders_response['accountUid'], None)
+            logger.info("🔍 Trying privateGetFills...")
+            fills_response = exchange.privateGetFills()
+            logger.info(f"📋 fills response keys: {list(fills_response.keys()) if isinstance(fills_response, dict) else 'not a dict'}")
+            if isinstance(fills_response, dict) and 'accountUid' in fills_response:
+                return (fills_response['accountUid'], None)
         except Exception as e:
-            logger.warning(f"⚠️ openorders endpoint failed: {e}")
+            logger.warning(f"⚠️ fills endpoint failed: {e}")
         
-        # Final fallback: Validate credentials work and use API key hash
+        # Method 5: Try notifications endpoint
+        try:
+            logger.info("🔍 Trying privateGetNotifications...")
+            notif_response = exchange.privateGetNotifications()
+            logger.info(f"📋 notifications response keys: {list(notif_response.keys()) if isinstance(notif_response, dict) else 'not a dict'}")
+            if isinstance(notif_response, dict) and 'accountUid' in notif_response:
+                return (notif_response['accountUid'], None)
+        except Exception as e:
+            logger.warning(f"⚠️ notifications endpoint failed: {e}")
+        
+        # Final fallback: Validate credentials and use API key hash
         logger.info("🔍 Validating credentials with fetch_balance...")
         balance = exchange.fetch_balance()
-        logger.info(f"✅ Credentials valid, balance fetched")
+        logger.info(f"✅ Credentials valid")
         
-        # Use a hash of the API key as a fallback identifier
-        # THIS IS NOT IDEAL - different API keys will get different IDs
+        # Check if balance info has any unique identifier
+        if 'info' in balance:
+            info = balance['info']
+            logger.info(f"📋 balance info keys: {list(info.keys()) if isinstance(info, dict) else 'not a dict'}")
+            if isinstance(info, dict) and 'accountUid' in info:
+                return (info['accountUid'], None)
+        
+        # Use API key hash as last resort
         api_key_hash = hashlib.sha256(api_key.encode()).hexdigest()[:36]
         formatted_uid = f"{api_key_hash[:8]}-{api_key_hash[8:12]}-{api_key_hash[12:16]}-{api_key_hash[16:20]}-{api_key_hash[20:32]}"
         
         logger.warning(f"⚠️ Could not fetch true accountUid from any endpoint!")
         logger.warning(f"⚠️ Using API key hash as fallback: {formatted_uid[:20]}...")
-        logger.warning(f"⚠️ This means different API keys from same account will get different IDs!")
         return (formatted_uid, None)
         
     except ccxt.AuthenticationError as e:
