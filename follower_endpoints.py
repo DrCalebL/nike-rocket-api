@@ -88,51 +88,69 @@ async def fetch_kraken_account_uid(api_key: str, api_secret: str) -> tuple[str, 
             'enableRateLimit': True,
         })
         
-        # Call the accounts endpoint which returns account info
-        # The raw response includes 'accounts' with account details
-        response = exchange.privateGetAccounts()
-        
-        # The accountUid is in the response
-        # Response structure: {"result": "success", "accounts": {...}, "serverTime": "..."}
-        # We need to extract an identifier - let's try the account log endpoint
-        # which explicitly returns accountUid
-        
-        # Try account log endpoint (returns accountUid explicitly)
+        # Try account log endpoint first (returns accountUid explicitly)
         try:
+            logger.info("🔍 Trying privateGetAccountlogGet...")
             log_response = exchange.privateGetAccountlogGet({'count': 1})
+            logger.info(f"📋 accountlog response keys: {list(log_response.keys()) if isinstance(log_response, dict) else 'not a dict'}")
+            
             if 'accountUid' in log_response:
+                logger.info(f"✅ Found accountUid in accountlog: {log_response['accountUid'][:20]}...")
                 return (log_response['accountUid'], None)
-        except Exception:
-            pass  # Fall through to alternative method
+            else:
+                logger.warning(f"⚠️ accountlog response has no accountUid. Full response: {str(log_response)[:300]}")
+        except Exception as e:
+            logger.warning(f"⚠️ accountlog endpoint failed: {e}")
         
-        # Alternative: Use a hash of consistent account identifiers
-        # The accounts response has margin account info with unique identifiers
-        if 'accounts' in response:
-            accounts_data = response.get('accounts', {})
-            # Create a deterministic hash from account structure
-            # This ensures same account always produces same ID
-            if accounts_data:
-                # Get the flex/multi margin account which is the main identifier
-                flex_account = accounts_data.get('flex', {})
-                if flex_account:
-                    # Use the portfolio value as seed + other stable fields
-                    account_str = json.dumps(accounts_data, sort_keys=True)
-                    # Actually, let's just validate the credentials work
-                    # and use a different approach - check balances
-                    pass
+        # Try accounts endpoint
+        try:
+            logger.info("🔍 Trying privateGetAccounts...")
+            accounts_response = exchange.privateGetAccounts()
+            logger.info(f"📋 accounts response keys: {list(accounts_response.keys()) if isinstance(accounts_response, dict) else 'not a dict'}")
+            logger.info(f"📋 accounts response sample: {str(accounts_response)[:500]}")
+            
+            # Look for any UID-like fields
+            if isinstance(accounts_response, dict):
+                if 'accountUid' in accounts_response:
+                    return (accounts_response['accountUid'], None)
+                if 'uid' in accounts_response:
+                    return (accounts_response['uid'], None)
+                # Check nested 'accounts' field
+                if 'accounts' in accounts_response:
+                    for acc_name, acc_data in accounts_response['accounts'].items():
+                        if isinstance(acc_data, dict):
+                            if 'uid' in acc_data:
+                                logger.info(f"✅ Found uid in accounts.{acc_name}: {acc_data['uid'][:20]}...")
+                                return (acc_data['uid'], None)
+                            if 'accountUid' in acc_data:
+                                logger.info(f"✅ Found accountUid in accounts.{acc_name}")
+                                return (acc_data['accountUid'], None)
+        except Exception as e:
+            logger.warning(f"⚠️ accounts endpoint failed: {e}")
         
-        # Final fallback: Use balance fetch which validates credentials
-        # and return a hash of the response to create a pseudo-UID
+        # Try openOrders which might have account info
+        try:
+            logger.info("🔍 Trying privateGetOpenorders...")
+            orders_response = exchange.privateGetOpenorders()
+            logger.info(f"📋 openorders response keys: {list(orders_response.keys()) if isinstance(orders_response, dict) else 'not a dict'}")
+            if isinstance(orders_response, dict) and 'accountUid' in orders_response:
+                return (orders_response['accountUid'], None)
+        except Exception as e:
+            logger.warning(f"⚠️ openorders endpoint failed: {e}")
+        
+        # Final fallback: Validate credentials work and use API key hash
+        logger.info("🔍 Validating credentials with fetch_balance...")
         balance = exchange.fetch_balance()
+        logger.info(f"✅ Credentials valid, balance fetched")
         
-        # If we got here, credentials are valid but we couldn't get a true UID
         # Use a hash of the API key as a fallback identifier
-        # This is less ideal but still prevents trivial abuse
-        # (User would need new API keys AND new email to abuse)
+        # THIS IS NOT IDEAL - different API keys will get different IDs
         api_key_hash = hashlib.sha256(api_key.encode()).hexdigest()[:36]
         formatted_uid = f"{api_key_hash[:8]}-{api_key_hash[8:12]}-{api_key_hash[12:16]}-{api_key_hash[16:20]}-{api_key_hash[20:32]}"
         
-        logger.warning(f"Could not fetch true accountUid, using API key hash as fallback: {formatted_uid[:20]}...")
+        logger.warning(f"⚠️ Could not fetch true accountUid from any endpoint!")
+        logger.warning(f"⚠️ Using API key hash as fallback: {formatted_uid[:20]}...")
+        logger.warning(f"⚠️ This means different API keys from same account will get different IDs!")
         return (formatted_uid, None)
         
     except ccxt.AuthenticationError as e:
