@@ -618,11 +618,19 @@ async def get_portfolio_stats(request: Request, period: str = "30d"):
                 all_time_profit_factor = round(all_total_wins / all_total_losses, 2)
             
             # All-time Sharpe Ratio
-            if len(all_pnl_values) > 1:
+            # FIXED: Use actual trade frequency instead of assuming 252 daily trades
+            # Formula: (avg_return / std_dev) * sqrt(annualized_trades)
+            # where annualized_trades = trades * (365 / days_active)
+            if len(all_pnl_values) > 1 and all_time_days_active > 0:
                 all_avg_return = statistics.mean(all_pnl_values)
                 all_std_dev = statistics.stdev(all_pnl_values)
-                all_time_sharpe = (all_avg_return / all_std_dev) * (252 ** 0.5) if all_std_dev > 0 else 0
-                all_time_sharpe = round(all_time_sharpe, 2)
+                if all_std_dev > 0:
+                    # Annualize based on actual trade frequency
+                    trades_per_year = all_time_total_trades * (365 / all_time_days_active)
+                    all_time_sharpe = (all_avg_return / all_std_dev) * (trades_per_year ** 0.5)
+                    all_time_sharpe = round(all_time_sharpe, 2)
+                else:
+                    all_time_sharpe = 0
             else:
                 all_time_sharpe = None
         else:
@@ -750,13 +758,20 @@ async def get_portfolio_stats(request: Request, period: str = "30d"):
                 max_drawdown = max(max_drawdown, drawdown)
         
         # 11. SHARPE RATIO
-        if len(pnl_values) > 1:
+        # FIXED: Use actual trade frequency instead of assuming 252 daily trades
+        # Formula: (avg_return / std_dev) * sqrt(annualized_trades)
+        if len(pnl_values) > 1 and days_active > 0:
             avg_return = statistics.mean(pnl_values)
             std_dev = statistics.stdev(pnl_values)
-            sharpe_ratio = (avg_return / std_dev) if std_dev > 0 else 0
-            sharpe_ratio = sharpe_ratio * (252 ** 0.5)
+            if std_dev > 0:
+                # Annualize based on actual trade frequency in the period
+                trades_per_year = total_trades * (365 / days_active)
+                sharpe_ratio = (avg_return / std_dev) * (trades_per_year ** 0.5)
+                sharpe_ratio = round(sharpe_ratio, 2)
+            else:
+                sharpe_ratio = 0
         else:
-            sharpe_ratio = None  # Not calculable with < 2 trades
+            sharpe_ratio = None  # Not calculable with < 2 trades or 0 days
         
         # ═══════════════════════════════════════════════════════════════
         # FIXED: Calculate PERIOD-SPECIFIC ROI (not all-time)
