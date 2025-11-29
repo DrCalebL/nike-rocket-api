@@ -11,21 +11,40 @@ Changes:
 - Uses follower_user_id FK in portfolio_transactions
 - Keeps all fallback logic and edge cases
 - Keeps robust scheduler with proper stop() method
+- Added error logging to error_logs table for admin dashboard
 
 Author: Nike Rocket Team
-Version: 3.1 (Consolidated + All Logic)
+Version: 3.2 (Consolidated + Error Logging)
 """
 import asyncio
 import asyncpg
 import os
+import json
 from decimal import Decimal
 from datetime import datetime, timedelta
 import logging
 from cryptography.fernet import Fernet
+from typing import Optional, Dict
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("balance_checker")
+
+
+async def log_error_to_db(pool, api_key: str, error_type: str, error_message: str, context: Optional[Dict] = None):
+    """Log error to error_logs table for admin dashboard visibility"""
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO error_logs (api_key, error_type, error_message, context) 
+                   VALUES ($1, $2, $3, $4)""",
+                api_key[:20] + "..." if api_key and len(api_key) > 20 else api_key,
+                error_type,
+                error_message[:500] if error_message else None,
+                json.dumps(context) if context else None
+            )
+    except Exception as e:
+        logger.error(f"Failed to log error to DB: {e}")
 
 # Setup encryption
 ENCRYPTION_KEY = os.getenv("CREDENTIALS_ENCRYPTION_KEY")
@@ -121,6 +140,10 @@ class BalanceChecker:
                         )
                     except Exception as e:
                         logger.error(f"Error checking user {user['api_key'][:15]}...: {e}")
+                        await log_error_to_db(
+                            self.db_pool, user['api_key'], "BALANCE_CHECK_USER_ERROR",
+                            str(e), {"user_id": user['id'], "function": "check_all_users"}
+                        )
                         
                 logger.info("✅ Balance check complete. Next check in 60 minutes")
                 
@@ -128,6 +151,10 @@ class BalanceChecker:
             logger.error(f"Error in check_all_users: {e}")
             import traceback
             traceback.print_exc()
+            await log_error_to_db(
+                self.db_pool, "system", "BALANCE_CHECK_ALL_ERROR",
+                str(e), {"function": "check_all_users", "traceback": traceback.format_exc()[:500]}
+            )
 
 
     async def check_user_balance(
@@ -323,6 +350,10 @@ class BalanceChecker:
             
         except Exception as e:
             logger.error(f"Error checking exchange transactions: {e}")
+            await log_error_to_db(
+                self.db_pool, api_key, "EXCHANGE_TX_CHECK_ERROR",
+                str(e), {"user_id": user_id, "function": "check_exchange_transactions"}
+            )
             return []
 
 
@@ -416,6 +447,10 @@ class BalanceChecker:
             logger.error(f"❌ Error fetching Kraken balance: {e}")
             import traceback
             traceback.print_exc()
+            await log_error_to_db(
+                self.db_pool, api_key[:15] + "...", "KRAKEN_FETCH_BALANCE_ERROR",
+                str(e), {"function": "get_kraken_balance", "traceback": traceback.format_exc()[:500]}
+            )
             return None
 
 
@@ -683,6 +718,10 @@ class BalanceCheckerScheduler:
                 logger.error(f"Error in balance check loop: {e}")
                 import traceback
                 traceback.print_exc()
+                await log_error_to_db(
+                    self.db_pool, "system", "BALANCE_CHECK_LOOP_ERROR",
+                    str(e), {"function": "_run", "traceback": traceback.format_exc()[:500]}
+                )
             
             await asyncio.sleep(self.check_interval)
     
