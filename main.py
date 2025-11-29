@@ -832,6 +832,95 @@ async def admin_check_overdue(password: str = ""):
 # KRAKEN ACCOUNT ID BACKFILL (One-time admin utility)
 # ═══════════════════════════════════════════════════════════════════════════
 
+@app.get("/api/admin/test-kraken-uid")
+async def admin_test_kraken_uid(password: str = "", email: str = ""):
+    """
+    Debug endpoint: Test what Kraken UID we can retrieve for a user
+    """
+    if password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    import ccxt
+    from cryptography.fernet import Fernet
+    
+    ENCRYPTION_KEY = os.getenv("CREDENTIALS_ENCRYPTION_KEY")
+    cipher = Fernet(ENCRYPTION_KEY.encode())
+    
+    try:
+        db_pool = await asyncpg.create_pool(DATABASE_URL)
+        
+        async with db_pool.acquire() as conn:
+            # Get user
+            if email:
+                user = await conn.fetchrow("""
+                    SELECT id, email, kraken_api_key_encrypted, kraken_api_secret_encrypted, kraken_account_id
+                    FROM follower_users WHERE email = $1
+                """, email)
+            else:
+                user = await conn.fetchrow("""
+                    SELECT id, email, kraken_api_key_encrypted, kraken_api_secret_encrypted, kraken_account_id
+                    FROM follower_users WHERE credentials_set = true LIMIT 1
+                """)
+            
+            if not user:
+                return {"error": "No user found"}
+            
+            # Decrypt credentials
+            kraken_key = cipher.decrypt(user['kraken_api_key_encrypted'].encode()).decode()
+            kraken_secret = cipher.decrypt(user['kraken_api_secret_encrypted'].encode()).decode()
+            
+            # Create exchange
+            exchange = ccxt.krakenfutures({
+                'apiKey': kraken_key,
+                'secret': kraken_secret,
+                'enableRateLimit': True,
+            })
+            
+            results = {
+                "email": user['email'],
+                "stored_kraken_id": user['kraken_account_id'],
+                "api_key_prefix": kraken_key[:8] + "...",
+                "endpoints_tried": {}
+            }
+            
+            # Try accountlog endpoint
+            try:
+                log_response = exchange.privateGetAccountlogGet({'count': 1})
+                results["endpoints_tried"]["accountlog"] = {
+                    "success": True,
+                    "accountUid": log_response.get('accountUid'),
+                    "keys": list(log_response.keys())[:10]
+                }
+            except Exception as e:
+                results["endpoints_tried"]["accountlog"] = {"success": False, "error": str(e)[:100]}
+            
+            # Try accounts endpoint
+            try:
+                accounts_response = exchange.privateGetAccounts()
+                results["endpoints_tried"]["accounts"] = {
+                    "success": True,
+                    "data": str(accounts_response)[:500]
+                }
+            except Exception as e:
+                results["endpoints_tried"]["accounts"] = {"success": False, "error": str(e)[:100]}
+            
+            # Try openpositions (often has account info)
+            try:
+                positions_response = exchange.privateGetOpenpositions()
+                results["endpoints_tried"]["openpositions"] = {
+                    "success": True,
+                    "keys": list(positions_response.keys())[:10] if isinstance(positions_response, dict) else "not a dict"
+                }
+            except Exception as e:
+                results["endpoints_tried"]["openpositions"] = {"success": False, "error": str(e)[:100]}
+            
+            await db_pool.close()
+            return results
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/admin/backfill-kraken-ids")
 async def admin_backfill_kraken_ids(password: str = ""):
     """
