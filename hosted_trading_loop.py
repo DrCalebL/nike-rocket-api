@@ -1,6 +1,6 @@
 """
-Nike Rocket - Hosted Trading Loop (30-Day Billing)
-===================================================
+Nike Rocket - Hosted Trading Loop (30-Day Billing + Error Logging)
+===================================================================
 Background task that polls for signals and executes trades for ALL active users.
 Runs on Railway as part of main.py startup.
 
@@ -12,6 +12,7 @@ Features:
 - Executes 3-order bracket (Entry + TP + SL)
 - Logs all activity for admin dashboard
 - ENFORCES 30-DAY BILLING: Skips users with overdue invoices
+- ERROR LOGGING: All errors logged to error_logs table for admin visibility
 
 OPTIMIZED:
 - Batched signal fetching (1 query instead of N queries)
@@ -19,13 +20,14 @@ OPTIMIZED:
 - Scales to 100+ users without hitting rate limits
 
 Author: Nike Rocket Team
-Updated: November 28, 2025 - 30-Day Billing Enforcement
+Updated: November 29, 2025 - Error Logging Added
 """
 
 import asyncio
 import ccxt
 import logging
 import math
+import json
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 import os
@@ -33,6 +35,22 @@ import os
 # Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('HOSTED_TRADING')
+
+
+async def log_error_to_db(pool, api_key: str, error_type: str, error_message: str, context: Optional[Dict] = None):
+    """Log error to error_logs table for admin dashboard visibility"""
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO error_logs (api_key, error_type, error_message, context) 
+                   VALUES ($1, $2, $3, $4)""",
+                api_key[:20] + "..." if api_key and len(api_key) > 20 else api_key,
+                error_type,
+                error_message[:500] if error_message else None,
+                json.dumps(context) if context else None
+            )
+    except Exception as e:
+        logger.error(f"Failed to log error to DB: {e}")
 
 # ==================== CONFIGURATION ====================
 
@@ -314,6 +332,10 @@ class HostedTradingLoop:
             
         except Exception as e:
             self.logger.error(f"Error fetching balance: {e}")
+            await log_error_to_db(
+                self.db_pool, "exchange", "EQUITY_FETCH_ERROR",
+                str(e), {"function": "get_user_equity"}
+            )
             return 0.0
     
     async def check_existing_position(self, exchange: ccxt.krakenfutures, symbol: str) -> bool:
@@ -390,6 +412,10 @@ class HostedTradingLoop:
             
         except Exception as e:
             self.logger.error(f"   ❌ {user_short}: Error in safety check: {e}")
+            await log_error_to_db(
+                self.db_pool, user_short, "SAFETY_CHECK_ERROR",
+                str(e), {"function": "check_any_open_positions_or_orders"}
+            )
             # On error, be cautious - allow trade but log warning
             return (False, None)
     
@@ -601,14 +627,27 @@ class HostedTradingLoop:
             
         except ccxt.InsufficientFunds as e:
             self.logger.error(f"   ❌ {user_short}: Insufficient funds - {str(e)[:100]}")
+            await log_error_to_db(
+                self.db_pool, user_api_key, "INSUFFICIENT_FUNDS",
+                str(e)[:200], {"symbol": kraken_symbol, "side": action, "function": "execute_trade"}
+            )
             return False
             
         except ccxt.InvalidOrder as e:
             self.logger.error(f"   ❌ {user_short}: Invalid order - {str(e)[:100]}")
+            await log_error_to_db(
+                self.db_pool, user_api_key, "INVALID_ORDER",
+                str(e)[:200], {"symbol": kraken_symbol, "side": action, "function": "execute_trade"}
+            )
             return False
             
         except ccxt.AuthenticationError as e:
             self.logger.error(f"   ❌ {user_short}: Auth failed - credentials may be invalid")
+            await log_error_to_db(
+                self.db_pool, user_api_key, "AUTH_ERROR",
+                "Kraken API authentication failed - credentials may be invalid",
+                {"function": "execute_trade"}
+            )
             # Remove from cache so it re-authenticates next time
             if user_api_key in self.active_exchanges:
                 del self.active_exchanges[user_api_key]
@@ -616,6 +655,10 @@ class HostedTradingLoop:
             
         except Exception as e:
             self.logger.error(f"   ❌ {user_short}: Error - {type(e).__name__}: {str(e)[:100]}")
+            await log_error_to_db(
+                self.db_pool, user_api_key, f"TRADE_EXECUTION_ERROR",
+                str(e)[:200], {"symbol": kraken_symbol, "side": action, "error_type": type(e).__name__, "function": "execute_trade"}
+            )
             return False
     
     async def poll_and_execute(self):
@@ -674,6 +717,10 @@ class HostedTradingLoop:
                     
             except Exception as e:
                 self.logger.error(f"❌ {user_short}: Error - {e}")
+                await log_error_to_db(
+                    self.db_pool, item.get('api_key', 'unknown'), "SIGNAL_PROCESSING_ERROR",
+                    str(e)[:200], {"signal_id": item.get('signal_id'), "function": "poll_and_execute"}
+                )
     
     async def run(self):
         """
@@ -715,6 +762,10 @@ class HostedTradingLoop:
                 self.logger.error(f"❌ Error in trading loop: {e}")
                 import traceback
                 traceback.print_exc()
+                await log_error_to_db(
+                    self.db_pool, "system", "TRADING_LOOP_ERROR",
+                    str(e)[:200], {"poll_count": poll_count, "traceback": traceback.format_exc()[:500]}
+                )
                 # Wait before retrying
                 await asyncio.sleep(10)
 
