@@ -53,7 +53,7 @@ def get_monthly_income(year: int, month: int) -> Dict:
                 bi.user_id,
                 fu.email,
                 bi.amount_usd as fee_paid,
-                bi.cycle_profit as user_profit,
+                bi.profit_amount as user_profit,
                 bi.paid_at,
                 bi.coinbase_charge_id
             FROM billing_invoices bi
@@ -194,7 +194,7 @@ def get_user_fees(start_date: str, end_date: str) -> List[Dict]:
                 fu.api_key,
                 fu.fee_tier,
                 COUNT(bi.id) as payment_count,
-                SUM(bi.cycle_profit) as total_profit,
+                SUM(bi.profit_amount) as total_profit,
                 SUM(bi.amount_usd) as total_fees_paid,
                 MIN(bi.paid_at) as first_payment,
                 MAX(bi.paid_at) as last_payment
