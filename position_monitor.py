@@ -39,6 +39,7 @@ import os
 import secrets
 import time
 import json
+import hashlib
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
@@ -116,6 +117,90 @@ class PositionMonitor:
             self.logger.error(f"Failed to create exchange: {e}")
             return None
     
+    async def update_user_fingerprint(self, user_id: int, exchange: ccxt.krakenfutures):
+        """
+        Update user's kraken_account_id fingerprint using trade history.
+        
+        Called after recording a user's first fills to upgrade them from
+        API key hash (weak) to trade history fingerprint (strong).
+        
+        Trade history is immutable and tied to the Kraken account, not the API key.
+        This prevents users from creating new accounts to avoid paying invoices.
+        """
+        try:
+            fingerprint_data = []
+            
+            # Get fills (trade history)
+            try:
+                fills_response = exchange.privateGetFills()
+                if isinstance(fills_response, dict) and 'fills' in fills_response:
+                    fills = fills_response['fills']
+                    for fill in fills[:50]:
+                        if isinstance(fill, dict):
+                            fill_id = fill.get('fill_id', fill.get('fillId', ''))
+                            trade_id = fill.get('trade_id', fill.get('tradeId', ''))
+                            order_id = fill.get('order_id', fill.get('orderId', ''))
+                            if fill_id:
+                                fingerprint_data.append(f"fill:{fill_id}")
+                            if trade_id:
+                                fingerprint_data.append(f"trade:{trade_id}")
+                            if order_id:
+                                fingerprint_data.append(f"order:{order_id}")
+            except Exception:
+                pass
+            
+            # Get open orders
+            try:
+                orders_response = exchange.privateGetOpenorders()
+                if isinstance(orders_response, dict) and 'openOrders' in orders_response:
+                    for order in orders_response['openOrders'][:20]:
+                        if isinstance(order, dict):
+                            order_id = order.get('order_id', order.get('orderId', ''))
+                            if order_id:
+                                fingerprint_data.append(f"open:{order_id}")
+            except Exception:
+                pass
+            
+            # Get balance info
+            try:
+                balance = exchange.fetch_balance()
+                if 'info' in balance and isinstance(balance['info'], dict):
+                    accounts_info = balance['info'].get('accounts', {})
+                    if 'flex' in accounts_info:
+                        flex = accounts_info['flex']
+                        if isinstance(flex, dict) and 'balances' in flex:
+                            for currency, amount in sorted(flex['balances'].items()):
+                                if amount and float(amount) != 0:
+                                    fingerprint_data.append(f"bal:{currency}:{amount}")
+            except Exception:
+                pass
+            
+            # Generate fingerprint if we have data
+            if fingerprint_data:
+                fingerprint_data.sort()
+                fingerprint_string = "|".join(fingerprint_data)
+                fingerprint_hash = hashlib.sha256(fingerprint_string.encode()).hexdigest()
+                new_fingerprint = f"{fingerprint_hash[:8]}-{fingerprint_hash[8:12]}-{fingerprint_hash[12:16]}-{fingerprint_hash[16:20]}-{fingerprint_hash[20:32]}"
+                
+                # Update database
+                async with self.db_pool.acquire() as conn:
+                    # Get current fingerprint
+                    current = await conn.fetchval(
+                        "SELECT kraken_account_id FROM follower_users WHERE id = $1",
+                        user_id
+                    )
+                    
+                    # Only update if different (and we have meaningful data)
+                    if current != new_fingerprint and len(fingerprint_data) > 5:
+                        await conn.execute(
+                            "UPDATE follower_users SET kraken_account_id = $1 WHERE id = $2",
+                            new_fingerprint, user_id
+                        )
+                        self.logger.info(f"🔐 Updated fingerprint for user {user_id}: {new_fingerprint[:20]}... ({len(fingerprint_data)} data points)")
+                        
+        except Exception as e:
+            self.logger.warning(f"Failed to update fingerprint for user {user_id}: {e}")
+    
     # ==================== Signal Matching ====================
     
     async def find_matching_signal(self, symbol: str, side: str, lookback_hours: int = 48) -> Optional[dict]:
@@ -141,14 +226,14 @@ class PositionMonitor:
                 
                 # Look for a recent signal matching this symbol and direction
                 signal = await conn.fetchrow("""
-                    SELECT id, signal_id, symbol, action as direction, created_at
+                    SELECT id, signal_id, symbol, direction, created_at
                     FROM signals
                     WHERE UPPER(symbol) LIKE $1
-                      AND LOWER(action) = LOWER($2)
-                      AND created_at >= NOW() - make_interval(hours => $3)
+                      AND LOWER(direction) = LOWER($2)
+                      AND created_at >= NOW() - INTERVAL '%s hours'
                     ORDER BY created_at DESC
                     LIMIT 1
-                """, f'%{symbol_base}%', side, lookback_hours)
+                """ % lookback_hours, f'%{symbol_base}%', side)
                 
                 if signal:
                     self.logger.info(f"✅ Found matching signal: {signal['symbol']} {signal['direction']} (signal_id: {signal['signal_id']})")
@@ -428,6 +513,10 @@ class PositionMonitor:
             
             if new_fills:
                 self.logger.info(f"⚡ {user_short}: Recorded {len(new_fills)} new fills")
+                
+                # Update fingerprint if user just got their first trades
+                # This upgrades them from API key hash to trade history fingerprint
+                await self.update_user_fingerprint(user_info['id'], exchange)
             
             return new_fills
             
