@@ -11,7 +11,9 @@ from decimal import Decimal
 import asyncpg
 import os
 import statistics
+import json
 from cryptography.fernet import Fernet
+from typing import Optional, Dict
 
 router = APIRouter()
 
@@ -21,6 +23,28 @@ if ENCRYPTION_KEY:
     cipher = Fernet(ENCRYPTION_KEY.encode())
 else:
     cipher = None
+
+
+async def log_error_async(api_key: str, error_type: str, error_message: str, context: Optional[Dict] = None):
+    """Log error to error_logs table for admin dashboard visibility"""
+    try:
+        DATABASE_URL = os.getenv("DATABASE_URL")
+        if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+            DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        
+        conn = await asyncpg.connect(DATABASE_URL)
+        await conn.execute(
+            """INSERT INTO error_logs (api_key, error_type, error_message, context) 
+               VALUES ($1, $2, $3, $4)""",
+            api_key[:20] + "..." if api_key and len(api_key) > 20 else api_key,
+            error_type,
+            error_message[:500] if error_message else None,  # Truncate long messages
+            json.dumps(context) if context else None
+        )
+        await conn.close()
+    except Exception as e:
+        print(f"Failed to log error: {e}")
+
 
 
 async def validate_api_key(api_key: str, db_pool=None) -> dict:
@@ -66,42 +90,58 @@ def decrypt_credentials(encrypted_key: str, encrypted_secret: str) -> tuple:
 
 async def get_kraken_credentials(api_key: str):
     """Get user's Kraken API credentials from database"""
-    DATABASE_URL = os.getenv("DATABASE_URL")
-    if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    
-    conn = await asyncpg.connect(DATABASE_URL)
-    
-    user = await conn.fetchrow("""
-        SELECT 
-            kraken_api_key_encrypted, 
-            kraken_api_secret_encrypted,
-            credentials_set
-        FROM follower_users
-        WHERE api_key = $1
-        AND credentials_set = true
-    """, api_key)
-    
-    await conn.close()
-    
-    if not user:
+    try:
+        DATABASE_URL = os.getenv("DATABASE_URL")
+        if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+            DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        
+        conn = await asyncpg.connect(DATABASE_URL)
+        
+        user = await conn.fetchrow("""
+            SELECT 
+                kraken_api_key_encrypted, 
+                kraken_api_secret_encrypted,
+                credentials_set
+            FROM follower_users
+            WHERE api_key = $1
+            AND credentials_set = true
+        """, api_key)
+        
+        await conn.close()
+        
+        if not user:
+            return None
+        
+        kraken_key, kraken_secret = decrypt_credentials(
+            user['kraken_api_key_encrypted'],
+            user['kraken_api_secret_encrypted']
+        )
+        
+        if not kraken_key or not kraken_secret:
+            await log_error_async(
+                api_key, "CREDENTIAL_DECRYPT_FAILED",
+                "Failed to decrypt Kraken API credentials",
+                {"function": "get_kraken_credentials"}
+            )
+            return None
+        
+        return {
+            'kraken_key': kraken_key,
+            'kraken_secret': kraken_secret
+        }
+    except Exception as e:
+        print(f"Error getting Kraken credentials: {e}")
+        import traceback
+        traceback.print_exc()
+        await log_error_async(
+            api_key, "GET_CREDENTIALS_ERROR",
+            str(e),
+            {"function": "get_kraken_credentials", "traceback": traceback.format_exc()[:500]}
+        )
         return None
-    
-    kraken_key, kraken_secret = decrypt_credentials(
-        user['kraken_api_key_encrypted'],
-        user['kraken_api_secret_encrypted']
-    )
-    
-    if not kraken_key or not kraken_secret:
-        return None
-    
-    return {
-        'kraken_key': kraken_key,
-        'kraken_secret': kraken_secret
-    }
 
 
-async def get_current_kraken_balance(kraken_key: str, kraken_secret: str):
+async def get_current_kraken_balance(kraken_key: str, kraken_secret: str, user_api_key: str = None):
     """Get current USD balance from Kraken Futures using CCXT"""
     try:
         import ccxt
@@ -141,9 +181,19 @@ async def get_current_kraken_balance(kraken_key: str, kraken_secret: str):
         return Decimal(str(usd_balance))
         
     except Exception as e:
-        print(f"Error getting Kraken balance: {e}")
+        error_msg = f"Error getting Kraken balance: {e}"
+        print(error_msg)
         import traceback
         traceback.print_exc()
+        
+        # Log to error_logs table for admin visibility
+        if user_api_key:
+            await log_error_async(
+                user_api_key,
+                "KRAKEN_BALANCE_ERROR",
+                str(e),
+                {"function": "get_current_kraken_balance", "traceback": traceback.format_exc()[:500]}
+            )
         return None
 
 
@@ -170,6 +220,11 @@ async def initialize_portfolio_autodetect(request: Request):
         
         if not credentials:
             await conn.close()
+            await log_error_async(
+                api_key, "CREDENTIALS_NOT_FOUND", 
+                "User attempted to initialize portfolio but has no trading agent set up",
+                {"endpoint": "/api/portfolio/initialize"}
+            )
             return {
                 "status": "error",
                 "message": "Please set up your trading agent first."
@@ -191,11 +246,17 @@ async def initialize_portfolio_autodetect(request: Request):
         
         kraken_balance = await get_current_kraken_balance(
             credentials['kraken_key'],
-            credentials['kraken_secret']
+            credentials['kraken_secret'],
+            api_key  # Pass for error logging
         )
         
         if kraken_balance is None:
             await conn.close()
+            await log_error_async(
+                api_key, "KRAKEN_CONNECTION_FAILED",
+                "Could not connect to Kraken or fetch balance - returned None",
+                {"endpoint": "/api/portfolio/initialize"}
+            )
             return {
                 "status": "error",
                 "message": "Could not connect to Kraken. Please check your agent setup."
@@ -203,6 +264,11 @@ async def initialize_portfolio_autodetect(request: Request):
         
         if kraken_balance <= 0:
             await conn.close()
+            await log_error_async(
+                api_key, "ZERO_BALANCE",
+                f"User has zero balance on Kraken: ${float(kraken_balance):.2f}",
+                {"endpoint": "/api/portfolio/initialize", "balance": float(kraken_balance)}
+            )
             return {
                 "status": "error",
                 "message": f"Your Kraken balance is $0. Please deposit funds first."
@@ -211,6 +277,11 @@ async def initialize_portfolio_autodetect(request: Request):
         MINIMUM_BALANCE = 10
         if kraken_balance < MINIMUM_BALANCE:
             await conn.close()
+            await log_error_async(
+                api_key, "INSUFFICIENT_BALANCE",
+                f"User balance ${float(kraken_balance):.2f} is below minimum ${MINIMUM_BALANCE}",
+                {"endpoint": "/api/portfolio/initialize", "balance": float(kraken_balance), "minimum": MINIMUM_BALANCE}
+            )
             return {
                 "status": "error",
                 "message": f"Minimum balance: ${MINIMUM_BALANCE}. Your balance: ${float(kraken_balance):.2f}"
@@ -254,6 +325,15 @@ async def initialize_portfolio_autodetect(request: Request):
     except Exception as e:
         print(f"Error initializing portfolio: {e}")
         import traceback
+        traceback.print_exc()
+        
+        # Log to admin dashboard
+        await log_error_async(
+            api_key, "PORTFOLIO_INIT_ERROR",
+            str(e),
+            {"endpoint": "/api/portfolio/initialize", "traceback": traceback.format_exc()[:500]}
+        )
+        raise HTTPException(status_code=500, detail=str(e))
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -332,6 +412,13 @@ async def get_balance_summary(request: Request):
         raise
     except Exception as e:
         print(f"Error in balance summary: {e}")
+        import traceback
+        traceback.print_exc()
+        await log_error_async(
+            api_key, "BALANCE_SUMMARY_ERROR",
+            str(e),
+            {"endpoint": "/api/portfolio/balance-summary", "traceback": traceback.format_exc()[:500]}
+        )
         raise HTTPException(status_code=500, detail="Error retrieving balance summary")
 
 
@@ -378,6 +465,13 @@ async def get_transactions(request: Request):
         raise
     except Exception as e:
         print(f"Error loading transactions: {e}")
+        import traceback
+        traceback.print_exc()
+        await log_error_async(
+            api_key, "TRANSACTIONS_ERROR",
+            str(e),
+            {"endpoint": "/api/portfolio/transactions", "traceback": traceback.format_exc()[:500]}
+        )
         raise HTTPException(status_code=500, detail="Error loading transactions")
 
 
@@ -755,6 +849,11 @@ async def get_portfolio_stats(request: Request, period: str = "30d"):
         print(f"Error in portfolio stats: {e}")
         import traceback
         traceback.print_exc()
+        await log_error_async(
+            api_key, "PORTFOLIO_STATS_ERROR",
+            str(e),
+            {"endpoint": "/api/portfolio/stats", "period": period, "traceback": traceback.format_exc()[:500]}
+        )
         raise HTTPException(status_code=500, detail="Error loading portfolio stats")
 
 
@@ -925,6 +1024,11 @@ async def get_equity_curve(request: Request):
         print(f"Error in equity curve: {e}")
         import traceback
         traceback.print_exc()
+        await log_error_async(
+            api_key, "EQUITY_CURVE_ERROR",
+            str(e),
+            {"endpoint": "/api/portfolio/equity-curve", "traceback": traceback.format_exc()[:500]}
+        )
         raise HTTPException(status_code=500, detail="Error loading equity curve")
 
 
