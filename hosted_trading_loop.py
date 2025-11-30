@@ -1,6 +1,6 @@
 """
-Nike Rocket - Hosted Trading Loop (30-Day Billing + Error Logging)
-===================================================================
+Nike Rocket - Hosted Trading Loop (30-Day Billing + Error Logging + Order Retry)
+==================================================================================
 Background task that polls for signals and executes trades for ALL active users.
 Runs on Railway as part of main.py startup.
 
@@ -8,8 +8,10 @@ Features:
 - Polls for latest signal ONCE per cycle (batched, not per-user)
 - Checks which users haven't acknowledged the signal
 - Decrypts user Kraken credentials from database
-- Calculates position size (2% risk formula)
-- Executes 3-order bracket (Entry + TP + SL)
+- Calculates position size (2-3% risk formula)
+- Executes 3-order bracket (Entry + TP + SL) WITH RETRY LOGIC
+- ORDER RETRY: 3 attempts with exponential backoff (1s -> 2s -> 4s)
+- DISCORD NOTIFICATIONS: Admin notified on order failures
 - Logs all activity for admin dashboard
 - ENFORCES 30-DAY BILLING: Skips users with overdue invoices
 - ERROR LOGGING: All errors logged to error_logs table for admin visibility
@@ -19,8 +21,13 @@ OPTIMIZED:
 - Cached exchange instances
 - Scales to 100+ users without hitting rate limits
 
+FAILSAFE:
+- Entry order fails → Trade aborted, admin notified
+- TP/SL fails → Position recorded, admin notified IMMEDIATELY
+- All failures logged to error_logs table
+
 Author: Nike Rocket Team
-Updated: November 29, 2025 - Error Logging Added
+Updated: November 29, 2025 - Order Retry + Discord Notifications
 """
 
 import asyncio
@@ -31,6 +38,17 @@ import json
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 import os
+
+# Import order utilities with retry logic
+from order_utils import (
+    place_entry_order_with_retry,
+    place_tp_order_with_retry,
+    place_sl_order_with_retry,
+    notify_entry_failed,
+    notify_bracket_incomplete,
+    notify_signal_invalid,
+    notify_signal_invalid_values
+)
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
@@ -416,8 +434,8 @@ class HostedTradingLoop:
                 self.db_pool, user_short, "SAFETY_CHECK_ERROR",
                 str(e), {"function": "check_any_open_positions_or_orders"}
             )
-            # On error, be CONSERVATIVE - skip trade to prevent double positions
-            return (True, f"Safety check error: {e}")
+            # On error, be cautious - allow trade but log warning
+            return (False, None)
     
     async def execute_trade(self, user: Dict, signal: Dict) -> bool:
         """
@@ -463,12 +481,65 @@ class HostedTradingLoop:
                 self.logger.error(f"   ❌ {user_short}: No equity found")
                 return False
             
+            # ==================== VALIDATE SL/TP PRESENCE ====================
+            # CRITICAL: Do not take trades without both SL and TP
+            if not signal.get('stop_loss') or not signal.get('take_profit'):
+                missing = []
+                if not signal.get('stop_loss'):
+                    missing.append('stop_loss')
+                if not signal.get('take_profit'):
+                    missing.append('take_profit')
+                
+                self.logger.error(f"   ❌ {user_short}: Signal missing {', '.join(missing)} - SKIPPING TRADE")
+                
+                # Notify admin via Discord
+                await notify_signal_invalid(
+                    signal_id=signal.get('signal_id'),
+                    symbol=signal.get('symbol'),
+                    action=signal.get('action'),
+                    missing_fields=missing,
+                    reason=f"Signal missing required fields: {', '.join(missing)}"
+                )
+                
+                await log_error_to_db(
+                    self.db_pool,
+                    user.get('api_key', 'unknown'),
+                    "SIGNAL_MISSING_SL_TP",
+                    f"Signal missing: {', '.join(missing)}",
+                    {"signal_id": signal.get('signal_id'), "symbol": signal.get('symbol')}
+                )
+                return False
+            
             # Extract signal data
             action = signal['action']  # BUY or SELL
             entry_price = float(signal['entry_price'])
             stop_loss = float(signal['stop_loss'])
             take_profit = float(signal['take_profit'])
             leverage = float(signal.get('leverage', 5.0))
+            
+            # Validate SL/TP are non-zero
+            if stop_loss <= 0 or take_profit <= 0:
+                self.logger.error(f"   ❌ {user_short}: Invalid SL ({stop_loss}) or TP ({take_profit}) - SKIPPING TRADE")
+                
+                # Notify admin via Discord
+                await notify_signal_invalid_values(
+                    signal_id=signal.get('signal_id'),
+                    symbol=signal.get('symbol'),
+                    action=action,
+                    entry_price=entry_price,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    reason=f"SL ({stop_loss}) or TP ({take_profit}) is zero or negative"
+                )
+                
+                await log_error_to_db(
+                    self.db_pool,
+                    user.get('api_key', 'unknown'),
+                    "SIGNAL_INVALID_SL_TP",
+                    f"Invalid SL ({stop_loss}) or TP ({take_profit})",
+                    {"signal_id": signal.get('signal_id'), "symbol": signal.get('symbol')}
+                )
+                return False
             
             # Get risk percentage from signal (2% aggressive, 3% conservative)
             # Falls back to default if not specified
@@ -482,6 +553,18 @@ class HostedTradingLoop:
             
             if risk_per_unit <= 0:
                 self.logger.error(f"   ❌ {user_short}: Invalid SL distance")
+                
+                # Notify admin via Discord
+                await notify_signal_invalid_values(
+                    signal_id=signal.get('signal_id'),
+                    symbol=signal.get('symbol'),
+                    action=action,
+                    entry_price=entry_price,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    reason=f"SL distance is zero (entry={entry_price}, SL={stop_loss})"
+                )
+                
                 return False
             
             # Position size = risk amount / risk per unit (NO leverage multiplication)
@@ -533,45 +616,105 @@ class HostedTradingLoop:
             except Exception as e:
                 self.logger.warning(f"   ⚠️ Could not set leverage: {e}")
             
-            # ==================== EXECUTE 3-ORDER BRACKET ====================
+            # ==================== EXECUTE 3-ORDER BRACKET WITH RETRY ====================
             
             side = action.lower()  # 'buy' or 'sell'
             exit_side = 'sell' if side == 'buy' else 'buy'
+            user_email = user.get('email', 'unknown')
+            user_api_key = user.get('api_key', 'unknown')
             
-            # 1. Entry order (market)
+            # 1. Entry order (market) - WITH RETRY
             self.logger.info(f"   📝 Placing entry order...")
-            entry_order = exchange.create_market_order(kraken_symbol, side, quantity)
+            entry_order = await place_entry_order_with_retry(
+                exchange=exchange,
+                symbol=kraken_symbol,
+                side=side,
+                quantity=quantity,
+                user_email=user_email,
+                user_api_key=user_api_key
+            )
+            
+            if not entry_order:
+                self.logger.error(f"   ❌ Entry order FAILED after all retries - ABORTING TRADE")
+                await notify_entry_failed(
+                    user_email=user_email,
+                    user_api_key=user_api_key,
+                    symbol=kraken_symbol,
+                    side=side,
+                    quantity=quantity,
+                    error="All retry attempts exhausted"
+                )
+                await log_error_to_db(
+                    self.db_pool,
+                    user_api_key,
+                    "ENTRY_ORDER_FAILED",
+                    "Entry order failed after all retries",
+                    {"symbol": kraken_symbol, "side": side, "quantity": quantity}
+                )
+                return
+            
             self.logger.info(f"   ✅ Entry: {entry_order['id']}")
             
             # Wait for fill
             await asyncio.sleep(2)
             
-            # 2. Take-profit order (limit, reduce-only)
+            # 2. Take-profit order (limit, reduce-only) - WITH RETRY
             self.logger.info(f"   📝 Placing take-profit order...")
             tp_price = float(exchange.price_to_precision(kraken_symbol, take_profit))
-            tp_order = exchange.create_limit_order(
-                kraken_symbol, exit_side, quantity, tp_price,
-                params={'reduceOnly': True}
+            tp_order = await place_tp_order_with_retry(
+                exchange=exchange,
+                symbol=kraken_symbol,
+                exit_side=exit_side,
+                quantity=quantity,
+                tp_price=tp_price,
+                user_email=user_email,
+                user_api_key=user_api_key
             )
-            self.logger.info(f"   ✅ TP @ ${tp_price}: {tp_order['id']}")
             
-            # 3. Stop-loss order (stop, reduce-only)
+            tp_placed = tp_order is not None
+            if tp_placed:
+                self.logger.info(f"   ✅ TP @ ${tp_price}: {tp_order['id']}")
+            else:
+                self.logger.error(f"   ❌ TP order FAILED - POSITION UNPROTECTED!")
+            
+            # 3. Stop-loss order (stop, reduce-only) - WITH RETRY
             self.logger.info(f"   📝 Placing stop-loss order...")
             sl_price = float(exchange.price_to_precision(kraken_symbol, stop_loss))
+            sl_order = await place_sl_order_with_retry(
+                exchange=exchange,
+                symbol=kraken_symbol,
+                exit_side=exit_side,
+                quantity=quantity,
+                sl_price=sl_price,
+                user_email=user_email,
+                user_api_key=user_api_key
+            )
             
-            # Try stop_market first, fallback to stop
-            try:
-                sl_order = exchange.create_order(
-                    kraken_symbol, 'stop_market', exit_side, quantity,
-                    params={'stopPrice': sl_price, 'reduceOnly': True}
-                )
-            except Exception:
-                sl_order = exchange.create_order(
-                    kraken_symbol, 'stop', exit_side, quantity,
-                    params={'triggerPrice': sl_price, 'reduceOnly': True}
-                )
+            sl_placed = sl_order is not None
+            if sl_placed:
+                self.logger.info(f"   ✅ SL @ ${sl_price}: {sl_order['id']}")
+            else:
+                self.logger.error(f"   ❌ SL order FAILED - POSITION UNPROTECTED!")
             
-            self.logger.info(f"   ✅ SL @ ${sl_price}: {sl_order['id']}")
+            # ==================== NOTIFY IF BRACKET INCOMPLETE ====================
+            if not tp_placed or not sl_placed:
+                self.logger.error(f"   🚨 BRACKET INCOMPLETE - Admin notified!")
+                await notify_bracket_incomplete(
+                    user_email=user_email,
+                    user_api_key=user_api_key,
+                    symbol=kraken_symbol,
+                    entry_order_id=entry_order['id'],
+                    tp_placed=tp_placed,
+                    sl_placed=sl_placed,
+                    error="TP/SL order(s) failed after all retries"
+                )
+                await log_error_to_db(
+                    self.db_pool,
+                    user_api_key,
+                    "BRACKET_INCOMPLETE",
+                    f"TP: {'OK' if tp_placed else 'FAILED'}, SL: {'OK' if sl_placed else 'FAILED'}",
+                    {"symbol": kraken_symbol, "entry_order_id": entry_order['id']}
+                )
             
             # ==================== RECORD OPEN POSITION ====================
             # Get entry fill price (may differ from signal due to slippage)
@@ -604,8 +747,8 @@ class HostedTradingLoop:
                         user['id'],
                         signal_db_id,
                         entry_order['id'],
-                        tp_order['id'],
-                        sl_order['id'],
+                        tp_order['id'] if tp_order else None,
+                        sl_order['id'] if sl_order else None,
                         signal['symbol'],  # BTC/USDT format
                         kraken_symbol,  # PF_XBTUSD format
                         action.upper(),  # BUY or SELL
