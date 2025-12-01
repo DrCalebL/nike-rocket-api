@@ -194,10 +194,10 @@ class BalanceChecker:
         
         # Check for significant discrepancy using CASH BALANCE (not total equity)
         # This prevents false deposit/withdrawal detection from unrealized P&L changes
-        # Use larger threshold ($5) to avoid false positives from:
-        # - Trading fees
+        # Use $5 threshold to avoid false positives from:
+        # - Trading fees (~0.05% per trade)
+        # - Funding fees (~0.01-0.1% every 8h)
         # - Slippage
-        # - Funding fees
         discrepancy = abs(float(cash_balance) - float(expected_balance))
         
         # Only flag as deposit/withdrawal if discrepancy is significant
@@ -218,11 +218,15 @@ class BalanceChecker:
                 transaction_type=transaction_type,
                 amount=amount
             )
-        elif discrepancy > 1.0:
-            # Small discrepancy - likely trading fees or slippage, not deposit/withdrawal
+        elif discrepancy > 0.1:
+            # Small discrepancy - likely accumulated trading/funding fees
+            if cash_balance > expected_balance:
+                reason = "likely funding earnings"
+            else:
+                reason = "likely trading/funding fees"
             logger.info(
                 f"📊 User {api_key[:10]}...: Small discrepancy ${discrepancy:.2f} "
-                f"(likely fees/slippage, not recording as transaction)"
+                f"({reason}, not recording as transaction)"
             )
         else:
             logger.info(f"✅ User {api_key[:10]}...: Cash ${cash_balance:.2f} matches expected")
@@ -307,7 +311,7 @@ class BalanceChecker:
                                 })
                                 logger.info(f"   💰 Found deposit via API: ${amount:.2f}")
             except Exception as e:
-                logger.debug(f"   Could not fetch deposits: {e}")
+                logger.info(f"   ℹ️ Could not fetch deposits from Kraken API: {e}")
             
             # Fetch withdrawal history
             try:
@@ -344,7 +348,7 @@ class BalanceChecker:
                                 })
                                 logger.info(f"   💸 Found withdrawal via API: ${amount:.2f}")
             except Exception as e:
-                logger.debug(f"   Could not fetch withdrawals: {e}")
+                logger.info(f"   ℹ️ Could not fetch withdrawals from Kraken API: {e}")
             
             return new_transactions
             
