@@ -586,7 +586,7 @@ class PositionMonitor:
             """)
             return [dict(row) for row in rows]
     
-    async def check_position_closed(self, exchange: ccxt.krakenfutures, kraken_symbol: str, side: str, quantity: float, tp_order_id: str, sl_order_id: str) -> Dict[str, Any]:
+    async def check_position_closed(self, exchange: ccxt.krakenfutures, kraken_symbol: str, side: str, quantity: float, tp_order_id: str, sl_order_id: str, user_api_key: str = 'unknown') -> Dict[str, Any]:
         """
         Check if position is still open on Kraken.
         
@@ -668,7 +668,7 @@ class PositionMonitor:
             self.logger.error(f"Error checking position: {e}")
             await log_error_to_db(
                 self.db_pool, user_api_key, "POSITION_CHECK_ERROR",
-                str(e), {"symbol": kraken_symbol, "function": "check_position_status"}
+                str(e), {"symbol": kraken_symbol, "function": "check_position_closed"}
             )
             return {'closed': False, 'error': str(e)}
     
@@ -871,7 +871,8 @@ class PositionMonitor:
                 position['side'], 
                 position.get('filled_quantity') or position['quantity'],
                 position['tp_order_id'],
-                position['sl_order_id']
+                position['sl_order_id'],
+                position['user_api_key']
             )
             
             if not result.get('closed'):
