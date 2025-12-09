@@ -424,9 +424,12 @@ async def get_balance_summary(request: Request):
 
 @router.get("/api/portfolio/transactions")
 async def get_transactions(request: Request):
-    """Get transaction history"""
+    """Get transaction history with pagination and date filtering"""
     api_key = request.headers.get("X-API-Key") or request.query_params.get("key")
     limit = int(request.query_params.get("limit", 50))
+    offset = int(request.query_params.get("offset", 0))
+    start_date = request.query_params.get("start_date")  # YYYY-MM-DD
+    end_date = request.query_params.get("end_date")      # YYYY-MM-DD
     
     if not api_key:
         raise HTTPException(status_code=401, detail="API key required")
@@ -453,12 +456,18 @@ async def get_transactions(request: Request):
             raise HTTPException(status_code=401, detail="Invalid API key")
         
         checker = BalanceChecker(db_pool)
-        transactions = await checker.get_transaction_history(api_key, limit)
+        transactions = await checker.get_transaction_history(
+            api_key, limit, offset, start_date, end_date
+        )
         await db_pool.close()
         
         return {
             "status": "success",
-            "transactions": transactions
+            "transactions": transactions,
+            "filters": {
+                "start_date": start_date,
+                "end_date": end_date
+            }
         }
     
     except HTTPException:
