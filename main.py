@@ -2577,7 +2577,7 @@ async def portfolio_dashboard(request: Request):
                     <h2 style="margin: 0; color: #667eea; font-size: 24px;">
                         📜 Transaction History
                     </h2>
-                    <button onclick="loadTransactionHistory()" style="
+                    <button onclick="loadTransactionHistory(true)" style="
                         background: #667eea;
                         color: white;
                         border: none;
@@ -2592,10 +2592,84 @@ async def portfolio_dashboard(request: Request):
                     </button>
                 </div>
                 
-                <div id="transaction-list" style="max-height: 400px; overflow-y: auto;">
+                <!-- Date Filter Controls -->
+                <div style="
+                    display: flex;
+                    gap: 15px;
+                    align-items: center;
+                    padding: 15px;
+                    background: #f9fafb;
+                    border-radius: 8px;
+                    margin-bottom: 15px;
+                    flex-wrap: wrap;
+                ">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label style="font-size: 14px; color: #374151; font-weight: 500;">From:</label>
+                        <input type="date" id="tx-start-date" style="
+                            padding: 8px 12px;
+                            border: 1px solid #e5e7eb;
+                            border-radius: 6px;
+                            font-size: 14px;
+                            color: #374151;
+                        ">
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label style="font-size: 14px; color: #374151; font-weight: 500;">To:</label>
+                        <input type="date" id="tx-end-date" style="
+                            padding: 8px 12px;
+                            border: 1px solid #e5e7eb;
+                            border-radius: 6px;
+                            font-size: 14px;
+                            color: #374151;
+                        ">
+                    </div>
+                    <button onclick="applyDateFilter()" style="
+                        background: #667eea;
+                        color: white;
+                        border: none;
+                        padding: 8px 16px;
+                        border-radius: 6px;
+                        cursor: pointer;
+                        font-size: 14px;
+                    ">
+                        🔍 Search
+                    </button>
+                    <button onclick="clearDateFilter()" style="
+                        background: #f3f4f6;
+                        color: #374151;
+                        border: 1px solid #e5e7eb;
+                        padding: 8px 16px;
+                        border-radius: 6px;
+                        cursor: pointer;
+                        font-size: 14px;
+                    ">
+                        ✕ Clear
+                    </button>
+                    <div id="date-filter-status" style="font-size: 12px; color: #6b7280; margin-left: auto;">
+                    </div>
+                </div>
+                
+                <div id="transaction-list" style="max-height: 500px; overflow-y: auto;">
                     <!-- Transactions will be loaded here -->
                     <div style="text-align: center; padding: 40px; color: #9ca3af;">
                         Loading transactions...
+                    </div>
+                </div>
+                
+                <div id="transaction-load-more" style="display: none; text-align: center; padding: 15px;">
+                    <button onclick="loadMoreTransactions()" style="
+                        background: #f3f4f6;
+                        color: #374151;
+                        border: 1px solid #e5e7eb;
+                        padding: 10px 24px;
+                        border-radius: 6px;
+                        cursor: pointer;
+                        font-size: 14px;
+                        transition: all 0.1s ease;
+                    ">
+                        📜 Load More
+                    </button>
+                    <div id="transaction-count" style="font-size: 12px; color: #9ca3af; margin-top: 8px;">
                     </div>
                 </div>
             </div>
@@ -3081,105 +3155,190 @@ async def portfolio_dashboard(request: Request):
             }}
         }}
         
-        // NEW: Load transaction history
-        async function loadTransactionHistory() {{
-            try {{
-                const response = await fetch(`/api/portfolio/transactions?key=${{currentApiKey}}&limit=20`);
-                const data = await response.json();
-                
-                const listElement = document.getElementById('transaction-list');
-                
-                if (data.status === 'success' && data.transactions.length > 0) {{
-                    let html = '';
-                    for (const tx of data.transactions) {{
-                        const date = new Date(tx.created_at).toLocaleDateString();
-                        const time = new Date(tx.created_at).toLocaleTimeString();
-                        
-                        // Determine icon, color, sign, and label based on transaction type
-                        let icon, color, sign, label, subtitle;
-                        
-                        if (tx.transaction_type === 'deposit') {{
-                            icon = '💰';
-                            color = '#10b981';
-                            sign = '+';
-                            label = 'Deposit';
-                            subtitle = `${{date}} at ${{time}}`;
-                        }} else if (tx.transaction_type === 'fees_funding_withdrawal') {{
-                            icon = '💸';
-                            color = '#ef4444';
-                            sign = '-';
-                            label = 'Fees / Funding / Withdrawal';
-                            // Show count if aggregated (multiple transactions in one day)
-                            const count = tx.tx_count || 1;
-                            if (count > 1) {{
-                                subtitle = `${{date}} (${{count}} transactions)`;
-                            }} else {{
-                                subtitle = `${{date}} at ${{time}}`;
-                            }}
-                        }} else if (tx.transaction_type === 'withdrawal') {{
-                            // Legacy withdrawal entries
-                            icon = '💸';
-                            color = '#ef4444';
-                            sign = '-';
-                            label = 'Withdrawal';
-                            subtitle = `${{date}} at ${{time}}`;
-                        }} else {{
-                            icon = '🎯';
-                            color = '#667eea';
-                            sign = '';
-                            label = tx.transaction_type;
-                            subtitle = `${{date}} at ${{time}}`;
-                        }}
-                        
-                        html += `
-                            <div style="
-                                padding: 15px;
-                                border-bottom: 1px solid #e5e7eb;
-                                display: flex;
-                                justify-content: space-between;
-                                align-items: center;
-                            ">
-                                <div style="display: flex; align-items: center; gap: 15px;">
-                                    <div style="font-size: 24px;">${{icon}}</div>
-                                    <div>
-                                        <div style="font-weight: 600; color: #374151;">
-                                            ${{label}}
-                                        </div>
-                                        <div style="font-size: 12px; color: #9ca3af;">
-                                            ${{subtitle}}
-                                        </div>
-                                    </div>
-                                </div>
-                                <div style="text-align: right;">
-                                    <div style="font-size: 20px; font-weight: 600; color: ${{color}};">
-                                        ${{sign}}$${{tx.amount.toLocaleString(undefined, {{minimumFractionDigits: 2, maximumFractionDigits: 2}})}}
-                                    </div>
-                                    <div style="font-size: 11px; color: #9ca3af;">
-                                        ${{tx.detection_method}}
-                                    </div>
-                                </div>
-                            </div>
-                        `;
+        // NEW: Transaction pagination state
+        let loadedTransactions = [];
+        let transactionOffset = 0;
+        const TRANSACTIONS_PER_PAGE = 20;
+        let hasMoreTransactions = true;
+        let txStartDate = null;
+        let txEndDate = null;
+        
+        // Apply date filter
+        function applyDateFilter() {{
+            txStartDate = document.getElementById('tx-start-date').value || null;
+            txEndDate = document.getElementById('tx-end-date').value || null;
+            
+            // Update status display
+            const statusEl = document.getElementById('date-filter-status');
+            if (txStartDate || txEndDate) {{
+                let filterText = 'Filtering: ';
+                if (txStartDate && txEndDate) {{
+                    filterText += `${{txStartDate}} to ${{txEndDate}}`;
+                }} else if (txStartDate) {{
+                    filterText += `from ${{txStartDate}}`;
+                }} else {{
+                    filterText += `until ${{txEndDate}}`;
+                }}
+                statusEl.textContent = filterText;
+                statusEl.style.color = '#667eea';
+            }} else {{
+                statusEl.textContent = '';
+            }}
+            
+            // Reload with filter
+            loadTransactionHistory(true);
+        }}
+        
+        // Clear date filter
+        function clearDateFilter() {{
+            document.getElementById('tx-start-date').value = '';
+            document.getElementById('tx-end-date').value = '';
+            txStartDate = null;
+            txEndDate = null;
+            document.getElementById('date-filter-status').textContent = '';
+            loadTransactionHistory(true);
+        }}
+        
+        // Render transactions to the list
+        function renderTransactions() {{
+            const listElement = document.getElementById('transaction-list');
+            
+            if (loadedTransactions.length > 0) {{
+                let html = '';
+                for (const tx of loadedTransactions) {{
+                    const date = new Date(tx.created_at).toLocaleDateString();
+                    const time = new Date(tx.created_at).toLocaleTimeString();
+                    
+                    // Determine icon, color, sign, and label based on transaction type
+                    let icon, color, sign, label, subtitle;
+                    
+                    if (tx.transaction_type === 'deposit') {{
+                        icon = '💰';
+                        color = '#10b981';
+                        sign = '+';
+                        label = 'Deposit';
+                        subtitle = `${{date}} at ${{time}}`;
+                    }} else if (tx.transaction_type === 'fees_funding_withdrawal') {{
+                        icon = '💸';
+                        color = '#ef4444';
+                        sign = '-';
+                        label = 'Fees / Funding / Withdrawal';
+                        subtitle = `${{date}} (daily total)`;
+                    }} else if (tx.transaction_type === 'withdrawal') {{
+                        // Legacy withdrawal entries
+                        icon = '💸';
+                        color = '#ef4444';
+                        sign = '-';
+                        label = 'Withdrawal';
+                        subtitle = `${{date}} at ${{time}}`;
+                    }} else {{
+                        icon = '🎯';
+                        color = '#667eea';
+                        sign = '';
+                        label = tx.transaction_type;
+                        subtitle = `${{date}} at ${{time}}`;
                     }}
                     
-                    // Add info note at the bottom
                     html += `
-                        <div style="padding: 15px; background: #f9fafb; border-top: 1px solid #e5e7eb;">
-                            <div style="font-size: 12px; color: #6b7280; text-align: center;">
-                                ℹ️ <strong>Note:</strong> Kraken API cannot distinguish between trading fees, 
-                                funding payments, and spot↔futures transfers. These are grouped as 
-                                "Fees / Funding / Withdrawal".
+                        <div style="
+                            padding: 15px;
+                            border-bottom: 1px solid #e5e7eb;
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                        ">
+                            <div style="display: flex; align-items: center; gap: 15px;">
+                                <div style="font-size: 24px;">${{icon}}</div>
+                                <div>
+                                    <div style="font-weight: 600; color: #374151;">
+                                        ${{label}}
+                                    </div>
+                                    <div style="font-size: 12px; color: #9ca3af;">
+                                        ${{subtitle}}
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="text-align: right;">
+                                <div style="font-size: 20px; font-weight: 600; color: ${{color}};">
+                                    ${{sign}}$${{tx.amount.toLocaleString(undefined, {{minimumFractionDigits: 2, maximumFractionDigits: 2}})}}
+                                </div>
+                                <div style="font-size: 11px; color: #9ca3af;">
+                                    ${{tx.detection_method}}
+                                </div>
                             </div>
                         </div>
                     `;
-                    
-                    listElement.innerHTML = html;
-                }} else {{
-                    listElement.innerHTML = `
-                        <div style="text-align: center; padding: 40px; color: #9ca3af;">
-                            No transactions yet. System will automatically detect deposits and withdrawals.
+                }}
+                
+                // Add info note at the bottom
+                html += `
+                    <div style="padding: 15px; background: #f9fafb; border-top: 1px solid #e5e7eb;">
+                        <div style="font-size: 12px; color: #6b7280; text-align: center;">
+                            ℹ️ <strong>Note:</strong> Kraken API cannot distinguish between trading fees, 
+                            funding payments, and spot↔futures transfers. These are grouped as 
+                            "Fees / Funding / Withdrawal" (aggregated daily).
                         </div>
-                    `;
+                    </div>
+                `;
+                
+                listElement.innerHTML = html;
+                
+                // Show/hide Load More button
+                const loadMoreDiv = document.getElementById('transaction-load-more');
+                const countDiv = document.getElementById('transaction-count');
+                if (hasMoreTransactions) {{
+                    loadMoreDiv.style.display = 'block';
+                    countDiv.textContent = `Showing ${{loadedTransactions.length}} transactions`;
+                }} else {{
+                    loadMoreDiv.style.display = 'block';
+                    countDiv.textContent = `All ${{loadedTransactions.length}} transactions loaded`;
+                    loadMoreDiv.querySelector('button').style.display = 'none';
+                }}
+            }} else {{
+                listElement.innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: #9ca3af;">
+                        No transactions yet. System will automatically detect deposits and withdrawals.
+                    </div>
+                `;
+                document.getElementById('transaction-load-more').style.display = 'none';
+            }}
+        }}
+        
+        // Load transaction history (reset = true to start fresh)
+        async function loadTransactionHistory(reset = false) {{
+            try {{
+                if (reset) {{
+                    loadedTransactions = [];
+                    transactionOffset = 0;
+                    hasMoreTransactions = true;
+                }}
+                
+                // Build URL with optional date filters
+                let url = `/api/portfolio/transactions?key=${{currentApiKey}}&limit=${{TRANSACTIONS_PER_PAGE}}&offset=${{transactionOffset}}`;
+                if (txStartDate) {{
+                    url += `&start_date=${{txStartDate}}`;
+                }}
+                if (txEndDate) {{
+                    url += `&end_date=${{txEndDate}}`;
+                }}
+                
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (data.status === 'success') {{
+                    if (data.transactions.length > 0) {{
+                        loadedTransactions = loadedTransactions.concat(data.transactions);
+                        transactionOffset += data.transactions.length;
+                        
+                        // Check if there are more to load
+                        if (data.transactions.length < TRANSACTIONS_PER_PAGE) {{
+                            hasMoreTransactions = false;
+                        }}
+                    }} else {{
+                        hasMoreTransactions = false;
+                    }}
+                    
+                    renderTransactions();
                 }}
             }} catch (error) {{
                 console.error('Error loading transactions:', error);
@@ -3189,6 +3348,11 @@ async def portfolio_dashboard(request: Request):
                     </div>
                 `;
             }}
+        }}
+        
+        // Load more transactions (append to existing)
+        async function loadMoreTransactions() {{
+            await loadTransactionHistory(false);
         }}
         
         // ==================== EQUITY CURVE CHART ====================
