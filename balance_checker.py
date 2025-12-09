@@ -192,24 +192,31 @@ class BalanceChecker:
         # Calculate expected balance (includes trading P&L)
         expected_balance = await self.calculate_expected_balance(user_id, api_key)
         
-        # Check for significant discrepancy using CASH BALANCE (not total equity)
-        # This prevents false deposit/withdrawal detection from unrealized P&L changes
-        # Use $5 threshold to avoid false positives from:
-        # - Trading fees (~0.05% per trade)
-        # - Funding fees (~0.01-0.1% every 8h)
-        # - Slippage
+        # Check for discrepancy using CASH BALANCE (not total equity)
+        # This prevents false detection from unrealized P&L changes
         discrepancy = abs(float(cash_balance) - float(expected_balance))
         
-        # Only flag as deposit/withdrawal if discrepancy is significant
-        if discrepancy > 5.0:
-            transaction_type = 'deposit' if cash_balance > expected_balance else 'withdrawal'
-            amount = abs(cash_balance - expected_balance)
-            
-            logger.info(
-                f"💰 Detected {transaction_type} for {api_key[:10]}...: "
-                f"Expected ${expected_balance:.2f}, Cash ${cash_balance:.2f}, "
-                f"Difference: ${amount:.2f}"
-            )
+        # Record any discrepancy > $0.01 (skip dust)
+        if discrepancy > 0.01:
+            if cash_balance > expected_balance:
+                # More money than expected = deposit
+                transaction_type = 'deposit'
+                amount = float(cash_balance) - float(expected_balance)
+                logger.info(
+                    f"💰 Detected deposit for {api_key[:10]}...: "
+                    f"Expected ${expected_balance:.2f}, Cash ${cash_balance:.2f}, "
+                    f"+${amount:.2f}"
+                )
+            else:
+                # Less money than expected = fees, funding, or withdrawal
+                # We cannot distinguish between these via API
+                transaction_type = 'fees_funding_withdrawal'
+                amount = float(expected_balance) - float(cash_balance)
+                logger.info(
+                    f"💸 Detected fees/funding/withdrawal for {api_key[:10]}...: "
+                    f"Expected ${expected_balance:.2f}, Cash ${cash_balance:.2f}, "
+                    f"-${amount:.2f}"
+                )
             
             # Record transaction
             await self.record_transaction(
@@ -217,16 +224,6 @@ class BalanceChecker:
                 api_key=api_key,
                 transaction_type=transaction_type,
                 amount=amount
-            )
-        elif discrepancy > 0.1:
-            # Small discrepancy - likely accumulated trading/funding fees
-            if cash_balance > expected_balance:
-                reason = "likely funding earnings"
-            else:
-                reason = "likely trading/funding fees"
-            logger.info(
-                f"📊 User {api_key[:10]}...: Small discrepancy ${discrepancy:.2f} "
-                f"({reason}, not recording as transaction)"
             )
         else:
             logger.info(f"✅ User {api_key[:10]}...: Cash ${cash_balance:.2f} matches expected")
@@ -488,11 +485,12 @@ class BalanceChecker:
             total_deposits = float(deposits_result or 0)
             
             # Get withdrawals from portfolio_transactions
+            # Include both legacy 'withdrawal' and new 'fees_funding_withdrawal' types
             withdrawals_result = await conn.fetchval("""
                 SELECT COALESCE(SUM(amount), 0)
                 FROM portfolio_transactions
                 WHERE (follower_user_id = $1 OR user_id = $2)
-                  AND transaction_type = 'withdrawal'
+                  AND transaction_type IN ('withdrawal', 'fees_funding_withdrawal')
             """, user_id, api_key)
             total_withdrawals = float(withdrawals_result or 0)
             
@@ -531,10 +529,18 @@ class BalanceChecker:
         amount: float
     ):
         """
-        Record a deposit or withdrawal transaction
+        Record a deposit or fees/funding/withdrawal transaction
         
         CONSOLIDATED: Uses both follower_user_id (new) and user_id (legacy api_key) for compatibility
         """
+        # Generate appropriate note based on transaction type
+        if transaction_type == 'fees_funding_withdrawal':
+            notes = 'Trading fees, funding payments, or withdrawal (cannot distinguish via API)'
+        elif transaction_type == 'deposit':
+            notes = 'Detected deposit via balance increase'
+        else:
+            notes = f'Auto-detected {transaction_type} via balance checker'
+        
         async with self.db_pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO portfolio_transactions (
@@ -551,7 +557,7 @@ class BalanceChecker:
                 transaction_type,
                 float(amount),
                 'automatic',
-                f'Auto-detected {transaction_type} via balance checker'
+                notes
             )
             
             logger.info(f"✅ Recorded {transaction_type} of ${amount:.2f} for {api_key[:10]}...")
@@ -606,12 +612,12 @@ class BalanceChecker:
             """, user_id, api_key)
             deposits = float(deposits_result or 0)
             
-            # Get withdrawals
+            # Get withdrawals (include both legacy and new type)
             withdrawals_result = await conn.fetchval("""
                 SELECT COALESCE(SUM(amount), 0)
                 FROM portfolio_transactions
                 WHERE (follower_user_id = $1 OR user_id = $2)
-                  AND transaction_type = 'withdrawal'
+                  AND transaction_type IN ('withdrawal', 'fees_funding_withdrawal')
             """, user_id, api_key)
             withdrawals = float(withdrawals_result or 0)
             
@@ -661,6 +667,9 @@ class BalanceChecker:
         """
         Get transaction history for a user
         
+        OPTIMIZED: Aggregates fees/funding/withdrawals by day to prevent list clogging
+        while keeping deposits as individual entries
+        
         CONSOLIDATED: Uses both FKs for compatibility
         """
         async with self.db_pool.acquire() as conn:
@@ -669,15 +678,61 @@ class BalanceChecker:
                 SELECT id FROM follower_users WHERE api_key = $1
             """, api_key)
             
+            # Query that aggregates fees_funding_withdrawal by day, keeps deposits individual
             transactions = await conn.fetch("""
+                WITH aggregated AS (
+                    -- Aggregate fees/funding/withdrawals by day
+                    SELECT 
+                        'fees_funding_withdrawal' as transaction_type,
+                        SUM(amount) as amount,
+                        DATE(created_at) as tx_date,
+                        MAX(created_at) as created_at,
+                        'automatic' as detection_method,
+                        'Daily total: Trading fees, funding payments, or withdrawals' as notes,
+                        COUNT(*) as tx_count
+                    FROM portfolio_transactions
+                    WHERE (follower_user_id = $1 OR user_id = $2)
+                      AND transaction_type = 'fees_funding_withdrawal'
+                    GROUP BY DATE(created_at)
+                    
+                    UNION ALL
+                    
+                    -- Keep deposits as individual entries
+                    SELECT 
+                        transaction_type,
+                        amount,
+                        DATE(created_at) as tx_date,
+                        created_at,
+                        detection_method,
+                        notes,
+                        1 as tx_count
+                    FROM portfolio_transactions
+                    WHERE (follower_user_id = $1 OR user_id = $2)
+                      AND transaction_type = 'deposit'
+                    
+                    UNION ALL
+                    
+                    -- Keep legacy 'withdrawal' entries as individual
+                    SELECT 
+                        transaction_type,
+                        amount,
+                        DATE(created_at) as tx_date,
+                        created_at,
+                        detection_method,
+                        notes,
+                        1 as tx_count
+                    FROM portfolio_transactions
+                    WHERE (follower_user_id = $1 OR user_id = $2)
+                      AND transaction_type = 'withdrawal'
+                )
                 SELECT 
                     transaction_type,
                     amount,
                     created_at,
                     detection_method,
-                    notes
-                FROM portfolio_transactions
-                WHERE follower_user_id = $1 OR user_id = $2
+                    notes,
+                    tx_count
+                FROM aggregated
                 ORDER BY created_at DESC
                 LIMIT $3
             """, user_id, api_key, limit)
