@@ -2398,30 +2398,6 @@ async def portfolio_dashboard(request: Request):
                 "></div>
             </div>
             
-            <!-- Live Positions Section -->
-            <div class="live-positions" style="
-                background: white;
-                border-radius: 12px;
-                padding: 30px;
-                margin-bottom: 30px;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            ">
-                <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h2 style="margin: 0; color: #667eea; font-size: 24px;">
-                        📊 Live Positions
-                    </h2>
-                    <div style="font-size: 12px; color: #9ca3af;">
-                        Auto-refreshes with dashboard
-                    </div>
-                </div>
-                
-                <div id="positions-container">
-                    <div style="text-align: center; padding: 40px; color: #6b7280;">
-                        ⏳ Loading positions...
-                    </div>
-                </div>
-            </div>
-            
             <div class="hero">
                 <h1>🚀 $NIKEPIG'S MASSIVE ROCKET PERFORMANCE</h1>
                 
@@ -2727,69 +2703,11 @@ async def portfolio_dashboard(request: Request):
                 margin-top: 30px;
                 box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             ">
-                <div class="section-header">
+                <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <h2 style="margin: 0; color: #667eea; font-size: 24px;">
                         🔥 Open Positions
                     </h2>
                     <span id="open-positions-count" style="font-size: 14px; color: #6b7280;"></span>
-                </div>
-                
-                <!-- Date Filter Controls -->
-                <div style="
-                    display: flex;
-                    gap: 15px;
-                    align-items: center;
-                    padding: 15px;
-                    background: #f9fafb;
-                    border-radius: 8px;
-                    margin-bottom: 15px;
-                    margin-top: 15px;
-                    flex-wrap: wrap;
-                ">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <label style="font-size: 14px; color: #374151; font-weight: 500;">From:</label>
-                        <input type="date" id="pos-start-date" style="
-                            padding: 8px 12px;
-                            border: 1px solid #e5e7eb;
-                            border-radius: 6px;
-                            font-size: 14px;
-                            color: #374151;
-                        ">
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <label style="font-size: 14px; color: #374151; font-weight: 500;">To:</label>
-                        <input type="date" id="pos-end-date" style="
-                            padding: 8px 12px;
-                            border: 1px solid #e5e7eb;
-                            border-radius: 6px;
-                            font-size: 14px;
-                            color: #374151;
-                        ">
-                    </div>
-                    <button onclick="applyPositionDateFilter()" style="
-                        background: #667eea;
-                        color: white;
-                        border: none;
-                        padding: 8px 16px;
-                        border-radius: 6px;
-                        cursor: pointer;
-                        font-size: 14px;
-                    ">
-                        🔍 Search
-                    </button>
-                    <button onclick="clearPositionDateFilter()" style="
-                        background: #f3f4f6;
-                        color: #374151;
-                        border: 1px solid #e5e7eb;
-                        padding: 8px 16px;
-                        border-radius: 6px;
-                        cursor: pointer;
-                        font-size: 14px;
-                    ">
-                        ✕ Clear
-                    </button>
-                    <div id="pos-date-filter-status" style="font-size: 12px; color: #6b7280; margin-left: auto;">
-                    </div>
                 </div>
                 
                 <div id="open-positions-list" style="overflow-x: auto;">
@@ -3766,21 +3684,9 @@ async def portfolio_dashboard(request: Request):
         }}
         
         // ==================== OPEN POSITIONS FUNCTIONS ====================
-        let positionStartDate = null;
-        let positionEndDate = null;
-        
         async function loadPositions() {{
             try {{
-                let url = `/api/portfolio/open-positions?key=${{currentApiKey}}`;
-                
-                if (positionStartDate) {{
-                    url += `&start_date=${{positionStartDate}}`;
-                }}
-                if (positionEndDate) {{
-                    url += `&end_date=${{positionEndDate}}`;
-                }}
-                
-                const response = await fetch(url);
+                const response = await fetch(`/api/portfolio/open-positions?key=${{currentApiKey}}`);
                 const data = await response.json();
                 
                 const listDiv = document.getElementById('open-positions-list');
@@ -3876,40 +3782,6 @@ async def portfolio_dashboard(request: Request):
                     </div>
                 `;
             }}
-        }}
-        
-        function applyPositionDateFilter() {{
-            const startInput = document.getElementById('pos-start-date');
-            const endInput = document.getElementById('pos-end-date');
-            const statusDiv = document.getElementById('pos-date-filter-status');
-            
-            positionStartDate = startInput.value || null;
-            positionEndDate = endInput.value || null;
-            
-            if (positionStartDate || positionEndDate) {{
-                let filterText = 'Filtering: ';
-                if (positionStartDate && positionEndDate) {{
-                    filterText += `${{positionStartDate}} to ${{positionEndDate}}`;
-                }} else if (positionStartDate) {{
-                    filterText += `From ${{positionStartDate}}`;
-                }} else {{
-                    filterText += `Until ${{positionEndDate}}`;
-                }}
-                statusDiv.textContent = filterText;
-            }} else {{
-                statusDiv.textContent = '';
-            }}
-            
-            loadPositions();
-        }}
-        
-        function clearPositionDateFilter() {{
-            document.getElementById('pos-start-date').value = '';
-            document.getElementById('pos-end-date').value = '';
-            document.getElementById('pos-date-filter-status').textContent = '';
-            positionStartDate = null;
-            positionEndDate = null;
-            loadPositions();
         }}
         
         // Refresh entire dashboard
