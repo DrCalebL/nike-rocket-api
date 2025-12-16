@@ -2168,7 +2168,7 @@ async def portfolio_dashboard(request: Request):
                     <div class="overview-card">
                         <div style="color: #6b7280; font-size: 14px; margin-bottom: 5px;" title="Total portfolio value including unrealized P&amp;L from all open positions">Current Value <span style="font-size: 11px; opacity: 0.7;">ℹ️</span></div>
                         <div id="current-value" style="font-size: 32px; font-weight: bold; color: #10b981;">$0</div>
-                        <div style="font-size: 10px; color: #9ca3af; margin-top: 3px;">Includes unrealized P&amp;L</div>
+                        <div style="font-size: 10px; color: #9ca3af; margin-top: 3px;">Includes unrealized P&amp;L • Updates every 60 mins</div>
                     </div>
                     
                     <div class="overview-card">
