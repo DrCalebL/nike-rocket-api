@@ -199,14 +199,36 @@ class BalanceChecker:
         # Record any discrepancy > $0.01 (skip dust)
         if discrepancy > 0.01:
             if cash_balance > expected_balance:
-                # More money than expected = deposit
-                transaction_type = 'deposit'
+                # More money than expected - could be deposit OR unrecorded trade profit
                 amount = float(cash_balance) - float(expected_balance)
-                logger.info(
-                    f"💰 Detected deposit for {api_key[:10]}...: "
-                    f"Expected ${expected_balance:.2f}, Cash ${cash_balance:.2f}, "
-                    f"+${amount:.2f}"
-                )
+                
+                # CHECK: Was there a recently closed position?
+                # If so, this is likely trade profit, not a deposit
+                recently_closed = await self.check_recently_closed_position(user_id)
+                
+                if recently_closed:
+                    logger.info(
+                        f"⏳ Skipping deposit detection for {api_key[:10]}...: "
+                        f"Recently closed position found (profit may not be recorded yet). "
+                        f"Expected ${expected_balance:.2f}, Cash ${cash_balance:.2f}, "
+                        f"+${amount:.2f}"
+                    )
+                    # Don't record as deposit - let position_monitor handle it
+                else:
+                    # No recent position close - this is likely a real deposit
+                    transaction_type = 'deposit'
+                    logger.info(
+                        f"💰 Detected deposit for {api_key[:10]}...: "
+                        f"Expected ${expected_balance:.2f}, Cash ${cash_balance:.2f}, "
+                        f"+${amount:.2f}"
+                    )
+                    # Record transaction
+                    await self.record_transaction(
+                        user_id=user_id,
+                        api_key=api_key,
+                        transaction_type=transaction_type,
+                        amount=amount
+                    )
             else:
                 # Less money than expected = fees, funding, or withdrawal
                 # We cannot distinguish between these via API
@@ -218,13 +240,13 @@ class BalanceChecker:
                     f"-${amount:.2f}"
                 )
             
-            # Record transaction
-            await self.record_transaction(
-                user_id=user_id,
-                api_key=api_key,
-                transaction_type=transaction_type,
-                amount=amount
-            )
+                # Record transaction
+                await self.record_transaction(
+                    user_id=user_id,
+                    api_key=api_key,
+                    transaction_type=transaction_type,
+                    amount=amount
+                )
         else:
             logger.info(f"✅ User {api_key[:10]}...: Cash ${cash_balance:.2f} matches expected")
         
@@ -235,6 +257,40 @@ class BalanceChecker:
         )
         if exchange_txs:
             logger.info(f"   Found {len(exchange_txs)} transactions via exchange API")
+    
+    async def check_recently_closed_position(self, user_id: int) -> bool:
+        """
+        Check if user had a position close in the last 2 hours.
+        
+        This prevents false deposit detection when:
+        1. A TP/SL hits and position closes with profit
+        2. Balance checker runs before position_monitor records the trade
+        3. The profit would otherwise be misidentified as a deposit
+        
+        Returns:
+            True if a recently closed position exists (skip deposit detection)
+            False if no recent closes (safe to record deposit)
+        """
+        async with self.db_pool.acquire() as conn:
+            # Check for positions closed in the last 2 hours
+            recent_close = await conn.fetchrow("""
+                SELECT id, symbol, side, closed_at, avg_entry_price
+                FROM open_positions
+                WHERE user_id = $1
+                  AND status IN ('closed', 'closed_manual')
+                  AND closed_at > NOW() - INTERVAL '2 hours'
+                ORDER BY closed_at DESC
+                LIMIT 1
+            """, user_id)
+            
+            if recent_close:
+                logger.info(
+                    f"   🔍 Found recently closed position: {recent_close['symbol']} "
+                    f"{recent_close['side']} closed at {recent_close['closed_at']}"
+                )
+                return True
+            
+            return False
         
         # Update last known balance with TOTAL EQUITY (for dashboard display)
         await self.update_last_known_balance(user_id, api_key, total_equity)
