@@ -839,7 +839,7 @@ class PositionMonitor:
                     WHERE id = $2
                 """, profit_usd, position['user_id'])
                 
-                # Start billing cycle if not started (first trade)
+                # Start billing cycle if not started (FALLBACK - primary trigger is on position OPEN)
                 await conn.execute("""
                     UPDATE follower_users SET 
                         billing_cycle_start = CURRENT_TIMESTAMP
