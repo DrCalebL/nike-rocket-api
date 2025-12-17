@@ -1400,12 +1400,8 @@ async def get_open_positions(request: Request):
     Get all open positions for a user with TP/SL levels.
     Query params:
         - key: API key (required)
-        - start_date: Filter by date (optional, YYYY-MM-DD)
-        - end_date: Filter by date (optional, YYYY-MM-DD)
     """
     api_key = request.query_params.get('key') or request.headers.get('X-API-Key')
-    start_date = request.query_params.get('start_date')
-    end_date = request.query_params.get('end_date')
     
     if not api_key:
         raise HTTPException(status_code=401, detail="API key required")
@@ -1429,8 +1425,8 @@ async def get_open_positions(request: Request):
         
         user_id = user['id']
         
-        # Build query with optional date filters
-        query = """
+        # Get open positions from database
+        rows = await conn.fetch("""
             SELECT 
                 id,
                 symbol,
@@ -1450,23 +1446,8 @@ async def get_open_positions(request: Request):
                 status
             FROM open_positions
             WHERE user_id = $1 AND status = 'open'
-        """
-        params = [user_id]
-        param_count = 1
-        
-        if start_date:
-            param_count += 1
-            query += f" AND opened_at >= ${param_count}::date"
-            params.append(start_date)
-        
-        if end_date:
-            param_count += 1
-            query += f" AND opened_at <= ${param_count}::date + interval '1 day'"
-            params.append(end_date)
-        
-        query += " ORDER BY opened_at DESC"
-        
-        rows = await conn.fetch(query, *params)
+            ORDER BY opened_at DESC
+        """, user_id)
         
         positions = []
         for row in rows:
