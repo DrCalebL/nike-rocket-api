@@ -272,12 +272,11 @@ class BalanceChecker:
             False if no recent closes (safe to record deposit)
         """
         async with self.db_pool.acquire() as conn:
-            # Check for positions closed in the last 2 hours
+            # Check for trades closed in the last 2 hours
             recent_close = await conn.fetchrow("""
-                SELECT id, symbol, side, closed_at, avg_entry_price
-                FROM open_positions
+                SELECT id, symbol, side, closed_at, profit_usd
+                FROM trades
                 WHERE user_id = $1
-                  AND status IN ('closed', 'closed_manual')
                   AND closed_at > NOW() - INTERVAL '2 hours'
                 ORDER BY closed_at DESC
                 LIMIT 1
@@ -285,9 +284,29 @@ class BalanceChecker:
             
             if recent_close:
                 logger.info(
-                    f"   🔍 Found recently closed position: {recent_close['symbol']} "
-                    f"{recent_close['side']} closed at {recent_close['closed_at']}"
+                    f"   🔍 Found recently closed trade: {recent_close['symbol']} "
+                    f"{recent_close['side']} closed at {recent_close['closed_at']} "
+                    f"(P&L: ${recent_close['profit_usd']:.2f})"
                 )
+                return True
+            
+            # Also check for positions that are in 'open' status but have no 
+            # contracts on exchange (position closed but not recorded yet)
+            open_position = await conn.fetchrow("""
+                SELECT id, symbol, side
+                FROM open_positions
+                WHERE user_id = $1
+                  AND status = 'open'
+                LIMIT 1
+            """, user_id)
+            
+            if open_position:
+                logger.info(
+                    f"   🔍 User has open position in DB: {open_position['symbol']} "
+                    f"- will verify against exchange"
+                )
+                # Position exists in DB - balance discrepancy could be from 
+                # unrealized P&L, not a deposit. Be conservative.
                 return True
             
             return False
