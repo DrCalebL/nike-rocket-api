@@ -1057,7 +1057,7 @@ class PositionMonitor:
     async def run(self):
         """Main loop - checks positions every 60 seconds"""
         self.logger.info("=" * 60)
-        self.logger.info("📊 POSITION MONITOR v2 STARTED")
+        self.logger.info("📊 POSITION MONITOR v2.5 STARTED")
         self.logger.info("=" * 60)
         self.logger.info(f"🔄 Check interval: {CHECK_INTERVAL_SECONDS} seconds")
         self.logger.info(f"💰 Fee tiers: Team=0%, VIP=5%, Standard=10%")
