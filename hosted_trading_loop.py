@@ -744,6 +744,9 @@ class HostedTradingLoop:
                         signal.get('signal_id')
                     )
                     
+                    # Use consistent timestamp for both position and billing cycle
+                    position_opened_at = datetime.now()
+                    
                     await conn.execute("""
                         INSERT INTO open_positions 
                         (user_id, signal_id, entry_order_id, tp_order_id, sl_order_id,
@@ -764,16 +767,17 @@ class HostedTradingLoop:
                         entry_fill_price,
                         tp_price,
                         sl_price,
-                        datetime.now(),
+                        position_opened_at,
                         'open'
                     )
                     
                     # Start billing cycle if not started (first trade OPEN)
+                    # Use position's opened_at to ensure the trade is included in the cycle
                     await conn.execute("""
                         UPDATE follower_users SET 
-                            billing_cycle_start = CURRENT_TIMESTAMP
+                            billing_cycle_start = $2
                         WHERE id = $1 AND billing_cycle_start IS NULL
-                    """, user['id'])
+                    """, user['id'], position_opened_at)
                     
                     self.logger.info(f"   📝 Open position recorded in database")
             except Exception as e:
