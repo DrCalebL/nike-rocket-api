@@ -494,19 +494,15 @@ class PositionMonitor:
         Sync fills into an aggregated position record.
         
         Creates or updates open_positions with aggregated data from fills.
+        Only aggregates fills from AFTER the position's opened_at to prevent contamination.
         """
         try:
-            agg = await self.get_aggregated_position(user_id, symbol)
-            
-            if not agg or agg['net_quantity'] <= 0:
-                return  # No position
-            
             async with self.db_pool.acquire() as conn:
                 # Check if we already have an open position for this symbol
                 # Use base symbol matching (handles ADA/USD:USD vs ADA/USDT format differences)
                 base_symbol = self.get_base_symbol(symbol)
                 existing = await conn.fetchrow("""
-                    SELECT id, filled_quantity, avg_entry_price, fill_count
+                    SELECT id, filled_quantity, avg_entry_price, fill_count, opened_at
                     FROM open_positions 
                     WHERE user_id = $1 
                     AND SPLIT_PART(SPLIT_PART(symbol, '/', 1), ':', 1) = $2 
@@ -514,6 +510,13 @@ class PositionMonitor:
                 """, user_id, base_symbol)
                 
                 if existing:
+                    # Use position's opened_at to filter fills - prevents orphan fill contamination
+                    position_opened_at = existing['opened_at']
+                    agg = await self.get_aggregated_position(user_id, symbol, after_timestamp=position_opened_at)
+                    
+                    if not agg or agg['net_quantity'] <= 0:
+                        return  # No fills since position opened
+                    
                     # Update existing position with new aggregate data
                     if (existing['filled_quantity'] != agg['net_quantity'] or 
                         existing['fill_count'] != agg['fill_count']):
@@ -541,13 +544,16 @@ class PositionMonitor:
                             f"({agg['fill_count']} fills)"
                         )
                 else:
-                    # No existing position - this is fill-only tracking
-                    # We'll just log it for now; proper positions are created by trading loop
-                    self.logger.info(
-                        f"   📊 Aggregated fills: {symbol} {agg['net_side']} "
-                        f"{agg['net_quantity']:.2f} @ ${agg['avg_entry_price']:.4f} "
-                        f"({agg['fill_count']} fills, no open_positions record)"
-                    )
+                    # No existing position - get aggregation with auto-detected timestamp
+                    agg = await self.get_aggregated_position(user_id, symbol)
+                    
+                    if agg and agg['net_quantity'] > 0:
+                        # This is fill-only tracking - log for now
+                        self.logger.info(
+                            f"   📊 Aggregated fills: {symbol} {agg['net_side']} "
+                            f"{agg['net_quantity']:.2f} @ ${agg['avg_entry_price']:.4f} "
+                            f"({agg['fill_count']} fills, no open_positions record)"
+                        )
                     
         except Exception as e:
             self.logger.error(f"Error syncing position: {e}")
