@@ -1497,9 +1497,9 @@ async def get_open_positions(request: Request):
                 "entry_fill_price": float(row['entry_fill_price']) if row['entry_fill_price'] else 0,
                 "target_tp": float(row['target_tp']) if row['target_tp'] else None,
                 "target_sl": float(row['target_sl']) if row['target_sl'] else None,
-                "opened_at": row['opened_at'].isoformat() if row['opened_at'] else None,
-                "first_fill_at": row['first_fill_at'].isoformat() if row['first_fill_at'] else None,
-                "last_fill_at": row['last_fill_at'].isoformat() if row['last_fill_at'] else None,
+                "opened_at": (row['opened_at'].isoformat() + 'Z') if row['opened_at'] else None,
+                "first_fill_at": (row['first_fill_at'].isoformat() + 'Z') if row['first_fill_at'] else None,
+                "last_fill_at": (row['last_fill_at'].isoformat() + 'Z') if row['last_fill_at'] else None,
                 "fill_count": row['fill_count'] or 1,
                 "status": row['status']
             })
