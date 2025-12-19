@@ -690,7 +690,7 @@ def generate_admin_html(users: List[Dict], errors: List[Dict], stats: Dict, revi
     if review_positions:
         review_rows = ""
         for pos in review_positions:
-            side_color = "#10b981" if pos['side'] == 'BUY' else "#ef4444"
+            side_color = "#10b981" if pos['side'].upper() in ('BUY', 'LONG') else "#ef4444"
             review_rows += f"""
                 <tr>
                     <td>{pos['email']}</td>
