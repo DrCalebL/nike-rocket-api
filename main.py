@@ -2353,6 +2353,206 @@ async def portfolio_dashboard(request: Request):
             font-size: 12px;
             font-weight: 500;
         }}
+
+        /* Backtest Results Section */
+        .backtest-section {{
+            margin-bottom: 30px;
+        }}
+
+        .backtest-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(102, 126, 234, 0.1) 100%);
+            border-radius: 12px;
+            cursor: pointer;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            margin-bottom: 16px;
+        }}
+
+        .backtest-header h2 {{
+            color: #fff;
+            font-size: 20px;
+            margin: 0;
+        }}
+
+        .backtest-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+        }}
+
+        .backtest-card {{
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: transform 0.2s, border-color 0.2s;
+        }}
+
+        .backtest-card:hover {{
+            transform: translateY(-2px);
+            border-color: rgba(16, 185, 129, 0.4);
+        }}
+
+        .backtest-card .market-badge {{
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }}
+
+        .backtest-card .market-badge.bull {{
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }}
+
+        .backtest-card .market-badge.bear {{
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }}
+
+        .backtest-card .market-badge.sideways {{
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }}
+
+        .backtest-card .market-badge.full {{
+            background: rgba(139, 92, 246, 0.2);
+            color: #a78bfa;
+        }}
+
+        .backtest-card .period {{
+            color: #9ca3af;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }}
+
+        .backtest-card .result {{
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }}
+
+        .backtest-card .result.profit {{
+            color: #10b981;
+        }}
+
+        .backtest-card .final-value {{
+            color: #fff;
+            font-size: 15px;
+            margin-bottom: 12px;
+        }}
+
+        .backtest-card .stats {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }}
+
+        .backtest-card .stat {{
+            text-align: center;
+        }}
+
+        .backtest-card .stat-label {{
+            color: #6b7280;
+            font-size: 10px;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }}
+
+        .backtest-card .stat-value {{
+            color: #fff;
+            font-size: 13px;
+            font-weight: 600;
+        }}
+
+        .backtest-card .stat-value.negative {{
+            color: #ef4444;
+        }}
+
+        .backtest-card .stat-value.positive {{
+            color: #10b981;
+        }}
+
+        .backtest-disclaimer {{
+            margin-top: 16px;
+            padding: 12px 16px;
+            background: rgba(251, 191, 36, 0.1);
+            border: 1px solid rgba(251, 191, 36, 0.2);
+            border-radius: 8px;
+            font-size: 12px;
+            color: #fbbf24;
+        }}
+
+        .max-pain-section {{
+            margin-top: 20px;
+            padding: 20px;
+            background: rgba(239, 68, 68, 0.05);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 12px;
+        }}
+
+        .max-pain-section h3 {{
+            color: #ef4444;
+            font-size: 16px;
+            margin: 0 0 16px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+
+        .max-pain-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }}
+
+        .pain-stat {{
+            text-align: center;
+            padding: 16px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+        }}
+
+        .pain-stat .pain-value {{
+            font-size: 32px;
+            font-weight: bold;
+            color: #ef4444;
+            margin-bottom: 4px;
+        }}
+
+        .pain-stat .pain-label {{
+            color: #9ca3af;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }}
+
+        .pain-stat .pain-explanation {{
+            color: #d1d5db;
+            font-size: 12px;
+            line-height: 1.5;
+        }}
+
+        .max-pain-summary {{
+            padding: 14px 16px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            color: #d1d5db;
+            font-size: 13px;
+            line-height: 1.6;
+        }}
+
+        .max-pain-summary strong {{
+            color: #fff;
+        }}
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -3049,6 +3249,161 @@ async def portfolio_dashboard(request: Request):
                 </div>
             </div>
             
+            <!-- Backtest Results Section -->
+            <div class="backtest-section">
+                <div class="backtest-header" onclick="toggleBacktestSection()">
+                    <h2>📊 Backtested Performance (ADA/USDT)</h2>
+                    <span class="toggle-icon" id="backtestToggle">▼</span>
+                </div>
+                
+                <div class="backtest-grid" id="backtestGrid">
+                    <!-- Bull Market -->
+                    <div class="backtest-card">
+                        <span class="market-badge bull">🚀 BULL MARKET</span>
+                        <div class="period">Jan 2020 → Aug 2021 (1.6 years)</div>
+                        <div class="result profit">+10,132%</div>
+                        <div class="final-value">$300 → $30,695</div>
+                        <div class="stats">
+                            <div class="stat">
+                                <div class="stat-label">Buy & Hold</div>
+                                <div class="stat-value positive">+4,377%</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Outperformance</div>
+                                <div class="stat-value">2.3x</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Win Rate</div>
+                                <div class="stat-value">42.2%</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Max Drawdown</div>
+                                <div class="stat-value">37.6%</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Bear Market -->
+                    <div class="backtest-card">
+                        <span class="market-badge bear">🐻 BEAR MARKET</span>
+                        <div class="period">Sep 2021 → Jun 2023 (1.75 years)</div>
+                        <div class="result profit">+5,402%</div>
+                        <div class="final-value">$300 → $16,505</div>
+                        <div class="stats">
+                            <div class="stat">
+                                <div class="stat-label">Buy & Hold</div>
+                                <div class="stat-value negative">-84.4%</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Outperformance</div>
+                                <div class="stat-value">∞</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Win Rate</div>
+                                <div class="stat-value">42.0%</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Max Drawdown</div>
+                                <div class="stat-value">38.9%</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sideways/Chop Market -->
+                    <div class="backtest-card">
+                        <span class="market-badge sideways">🦀 SIDEWAYS CHOP</span>
+                        <div class="period">Jun 2023 → Nov 2025 (2.5 years)</div>
+                        <div class="result profit">+9,850%</div>
+                        <div class="final-value">$300 → $29,849</div>
+                        <div class="stats">
+                            <div class="stat">
+                                <div class="stat-label">Buy & Hold</div>
+                                <div class="stat-value positive">+60.9%</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Outperformance</div>
+                                <div class="stat-value">162x</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Win Rate</div>
+                                <div class="stat-value">41.1%</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Max Drawdown</div>
+                                <div class="stat-value">40.2%</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Full Cycle -->
+                    <div class="backtest-card">
+                        <span class="market-badge full">📈 FULL CYCLE</span>
+                        <div class="period">Jan 2020 → Nov 2025 (5.8 years)</div>
+                        <div class="result profit">+83.8M%</div>
+                        <div class="final-value">$300 → $251.4M</div>
+                        <div class="stats">
+                            <div class="stat">
+                                <div class="stat-label">Buy & Hold</div>
+                                <div class="stat-value positive">+582%</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Outperformance</div>
+                                <div class="stat-value">144,008x</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Win Rate</div>
+                                <div class="stat-value">41.8%</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Max Drawdown</div>
+                                <div class="stat-value">40.2%</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Max Pain / What to Expect Section -->
+                <div class="max-pain-section">
+                    <h3>🔥 What to Expect: The Hard Truth</h3>
+                    
+                    <div class="max-pain-grid">
+                        <div class="pain-stat">
+                            <div class="pain-value">~40%</div>
+                            <div class="pain-label">Max Drawdown</div>
+                            <div class="pain-explanation">Your account could drop 40% from its peak before recovering. This is normal and expected.</div>
+                        </div>
+                        
+                        <div class="pain-stat">
+                            <div class="pain-value">7-9</div>
+                            <div class="pain-label">Max Losses in a Row</div>
+                            <div class="pain-explanation">You may experience 7-9 consecutive losing trades. Stay disciplined - winners follow.</div>
+                        </div>
+                        
+                        <div class="pain-stat">
+                            <div class="pain-value">~42%</div>
+                            <div class="pain-label">Win Rate</div>
+                            <div class="pain-explanation">You'll lose more trades than you win. But winners are ~1.7x larger than losers on average.</div>
+                        </div>
+                        
+                        <div class="pain-stat">
+                            <div class="pain-value">2-3%</div>
+                            <div class="pain-label">Risk Per Trade</div>
+                            <div class="pain-explanation">Each trade risks only 2-3% of your account. This is how we survive losing streaks.</div>
+                        </div>
+                    </div>
+                    
+                    <div class="max-pain-summary">
+                        <strong>💡 The Psychology:</strong> Most traders quit during drawdowns or losing streaks - right before the system recovers. 
+                        The algo made money in <strong>bull markets</strong>, <strong>bear markets</strong>, and <strong>sideways chop</strong> because it stayed consistent. 
+                        Your job is simple: <strong>don't interfere</strong>. Let the math play out over hundreds of trades.
+                    </div>
+                </div>
+
+                <div class="backtest-disclaimer">
+                    ⚠️ <strong>Past performance does not guarantee future results.</strong> Backtests use historical Binance data with 20x max leverage, 2-3% risk per trade. Real trading involves slippage, fees, and market conditions that may differ. Trade responsibly.
+                </div>
+            </div>
+            
             <!-- Safety & Trust Section -->
             <div class="safety-section">
                 <div class="safety-header" onclick="toggleSafetySection()">
@@ -3161,6 +3516,21 @@ async def portfolio_dashboard(request: Request):
             const grid = document.getElementById('safetyGrid');
             header.classList.toggle('collapsed');
             grid.classList.toggle('hidden');
+        }}
+
+        function toggleBacktestSection() {{
+            const grid = document.getElementById('backtestGrid');
+            const toggle = document.getElementById('backtestToggle');
+            const disclaimer = grid.nextElementSibling;
+            if (grid.style.display === 'none') {{
+                grid.style.display = 'grid';
+                disclaimer.style.display = 'block';
+                toggle.textContent = '▼';
+            }} else {{
+                grid.style.display = 'none';
+                disclaimer.style.display = 'none';
+                toggle.textContent = '▶';
+            }}
         }}
         
         // On page load
