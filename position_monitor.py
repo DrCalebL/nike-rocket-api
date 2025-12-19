@@ -524,21 +524,19 @@ class PositionMonitor:
                                 filled_quantity = $2,
                                 fill_count = $3,
                                 total_cost_basis = $4,
-                                last_fill_at = $5,
-                                side = $6
-                            WHERE id = $7
+                                last_fill_at = $5
+                            WHERE id = $6
                         """,
                             agg['avg_entry_price'],
                             agg['net_quantity'],
                             agg['fill_count'],
                             abs(agg['total_cost']),
                             agg['last_fill'],
-                            agg['net_side'],
                             existing['id']
                         )
                         
                         self.logger.info(
-                            f"   📊 Position updated: {symbol} {agg['net_side']} "
+                            f"   📊 Position updated: {symbol} "
                             f"{agg['net_quantity']:.2f} @ ${agg['avg_entry_price']:.4f} "
                             f"({agg['fill_count']} fills)"
                         )
