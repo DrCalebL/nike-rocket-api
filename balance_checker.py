@@ -12,9 +12,10 @@ Changes:
 - Keeps all fallback logic and edge cases
 - Keeps robust scheduler with proper stop() method
 - Added error logging to error_logs table for admin dashboard
+- Added email notifications for critical errors
 
 Author: Nike Rocket Team
-Version: 3.2 (Consolidated + Error Logging)
+Version: 3.3 (Consolidated + Error Logging + Email Notifications)
 """
 import asyncio
 import asyncpg
@@ -25,6 +26,9 @@ from datetime import datetime, timedelta
 import logging
 from cryptography.fernet import Fernet
 from typing import Optional, Dict
+
+# Import notification functions
+from order_utils import notify_api_failure, notify_database_error, notify_critical_error
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -144,6 +148,14 @@ class BalanceChecker:
                             self.db_pool, user['api_key'], "BALANCE_CHECK_USER_ERROR",
                             str(e), {"user_id": user['id'], "function": "check_all_users"}
                         )
+                        # Notify if it's a database schema error (critical)
+                        error_str = str(e).lower()
+                        if 'column' in error_str or 'relation' in error_str or 'does not exist' in error_str:
+                            await notify_database_error(
+                                operation="check_user_balance",
+                                error=str(e),
+                                user_api_key=user['api_key']
+                            )
                         
                 logger.info("✅ Balance check complete. Next check in 60 minutes")
                 
@@ -154,6 +166,13 @@ class BalanceChecker:
             await log_error_to_db(
                 self.db_pool, "system", "BALANCE_CHECK_ALL_ERROR",
                 str(e), {"function": "check_all_users", "traceback": traceback.format_exc()[:500]}
+            )
+            # Critical system error - always notify
+            await notify_critical_error(
+                error_type="BALANCE_CHECK_ALL_ERROR",
+                error=str(e),
+                location="balance_checker.check_all_users",
+                context={"traceback": traceback.format_exc()[:300]}
             )
 
 
@@ -526,6 +545,14 @@ class BalanceChecker:
             await log_error_to_db(
                 self.db_pool, api_key[:15] + "...", "KRAKEN_FETCH_BALANCE_ERROR",
                 str(e), {"function": "get_kraken_balance", "traceback": traceback.format_exc()[:500]}
+            )
+            # Email notification for API failure
+            await notify_api_failure(
+                service="Kraken Futures",
+                endpoint="GET /derivatives/api/v3/accounts",
+                error=str(e),
+                user_api_key=api_key,
+                impact="Balance check skipped for this user"
             )
             return None
 
@@ -907,6 +934,13 @@ class BalanceCheckerScheduler:
                 await log_error_to_db(
                     self.db_pool, "system", "BALANCE_CHECK_LOOP_ERROR",
                     str(e), {"function": "_run", "traceback": traceback.format_exc()[:500]}
+                )
+                # Critical system error - notify
+                await notify_critical_error(
+                    error_type="BALANCE_CHECK_LOOP_ERROR",
+                    error=str(e),
+                    location="balance_checker._run",
+                    context={"traceback": traceback.format_exc()[:300]}
                 )
             
             await asyncio.sleep(self.check_interval)
