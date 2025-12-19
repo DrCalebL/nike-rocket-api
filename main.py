@@ -73,6 +73,9 @@ from billing_endpoints_30day import router as billing_router
 # Import trade reconciliation for backfilling historical trades
 from trade_reconciliation import reconcile_single_user, reconcile_all_users
 
+# Import notification functions for critical errors
+from order_utils import notify_critical_error, notify_security_alert
+
 # Initialize FastAPI
 app = FastAPI(
     title="Nike Rocket Follower API",
@@ -156,6 +159,37 @@ async def global_exception_handler(request: Request, exc: Exception):
         )
     except:
         pass  # Don't fail the response if logging fails
+    
+    # Send email notification for critical/security errors
+    try:
+        # Check for SQL injection patterns
+        sql_patterns = ['DBMS_PIPE', 'waitfor', 'sleep(', 'benchmark(', 'UNION SELECT', 
+                        'DROP TABLE', 'DELETE FROM', '--', ';--', 'xp_cmdshell']
+        is_security_alert = any(p.lower() in error_message.lower() for p in sql_patterns)
+        
+        if is_security_alert:
+            # Security alert - potential attack
+            await notify_security_alert(
+                alert_type="Potential SQL Injection",
+                details_dict={
+                    "Error": error_message[:200],
+                    "Endpoint": str(request.url.path),
+                    "Method": request.method,
+                },
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent")
+            )
+        elif error_type not in ['ValueError', 'KeyError', 'AttributeError']:
+            # Critical unhandled error (skip common validation errors)
+            await notify_critical_error(
+                error_type=f"UNHANDLED_{error_type}",
+                error=error_message,
+                location=f"{request.method} {request.url.path}",
+                user_api_key=api_key if api_key != "unknown" else None,
+                context={"traceback": tb[:200]}
+            )
+    except:
+        pass  # Don't fail if notification fails
     
     # Return error response
     return JSONResponse(
