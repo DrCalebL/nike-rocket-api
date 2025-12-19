@@ -682,7 +682,14 @@ class HostedTradingLoop:
             if tp_placed:
                 self.logger.info(f"   ✅ TP @ ${tp_price}: {tp_order['id']}")
             else:
-                self.logger.error(f"   ❌ TP order FAILED - POSITION UNPROTECTED!")
+                self.logger.error(f"   ❌ TP order FAILED - ABORTING TRADE!")
+                # Emergency close the entry position
+                await self._emergency_close_position(
+                    exchange, kraken_symbol, exit_side, quantity, 
+                    user_email, user_api_key, entry_order['id'],
+                    reason="TP order failed after all retries"
+                )
+                return False
             
             # 3. Stop-loss order (stop, reduce-only) - WITH RETRY
             self.logger.info(f"   📝 Placing stop-loss order...")
@@ -701,27 +708,21 @@ class HostedTradingLoop:
             if sl_placed:
                 self.logger.info(f"   ✅ SL @ ${sl_price}: {sl_order['id']}")
             else:
-                self.logger.error(f"   ❌ SL order FAILED - POSITION UNPROTECTED!")
-            
-            # ==================== NOTIFY IF BRACKET INCOMPLETE ====================
-            if not tp_placed or not sl_placed:
-                self.logger.error(f"   🚨 BRACKET INCOMPLETE - Admin notified!")
-                await notify_bracket_incomplete(
-                    user_email=user_email,
-                    user_api_key=user_api_key,
-                    symbol=kraken_symbol,
-                    entry_order_id=entry_order['id'],
-                    tp_placed=tp_placed,
-                    sl_placed=sl_placed,
-                    error="TP/SL order(s) failed after all retries"
+                self.logger.error(f"   ❌ SL order FAILED - ABORTING TRADE!")
+                # Cancel the orphaned TP order
+                try:
+                    exchange.cancel_order(tp_order['id'], kraken_symbol)
+                    self.logger.info(f"   ✅ Orphaned TP order {tp_order['id']} cancelled")
+                except Exception as cancel_e:
+                    self.logger.warning(f"   ⚠️ Could not cancel orphaned TP: {cancel_e}")
+                
+                # Emergency close the entry position
+                await self._emergency_close_position(
+                    exchange, kraken_symbol, exit_side, quantity,
+                    user_email, user_api_key, entry_order['id'],
+                    reason="SL order failed after all retries"
                 )
-                await log_error_to_db(
-                    self.db_pool,
-                    user_api_key,
-                    "BRACKET_INCOMPLETE",
-                    f"TP: {'OK' if tp_placed else 'FAILED'}, SL: {'OK' if sl_placed else 'FAILED'}",
-                    {"symbol": kraken_symbol, "entry_order_id": entry_order['id']}
-                )
+                return False
             
             # ==================== RECORD OPEN POSITION ====================
             # Get entry fill price (may differ from signal due to slippage)
@@ -822,6 +823,72 @@ class HostedTradingLoop:
                 str(e)[:200], {"symbol": kraken_symbol, "side": action, "error_type": type(e).__name__, "function": "execute_trade"}
             )
             return False
+    
+    async def _emergency_close_position(
+        self,
+        exchange,
+        symbol: str,
+        exit_side: str,
+        quantity: float,
+        user_email: str,
+        user_api_key: str,
+        entry_order_id: str,
+        reason: str
+    ):
+        """
+        Emergency market close when TP/SL placement fails.
+        
+        This protects users from having unprotected positions due to API failures.
+        The position is closed at market price and admin is notified.
+        """
+        self.logger.critical(f"   🚨🚨🚨 EMERGENCY CLOSE TRIGGERED 🚨🚨🚨")
+        self.logger.critical(f"   Reason: {reason}")
+        self.logger.critical(f"   Symbol: {symbol}, Side: {exit_side}, Qty: {quantity}")
+        
+        close_success = False
+        close_order_id = None
+        
+        try:
+            close_order = exchange.create_order(
+                symbol=symbol,
+                type='market',
+                side=exit_side,
+                amount=quantity,
+                params={'reduceOnly': True}
+            )
+            close_order_id = close_order.get('id')
+            close_success = True
+            self.logger.critical(f"   ✅ EMERGENCY CLOSE SUCCESSFUL: {close_order_id}")
+            self.logger.critical(f"   Position closed at market - check for slippage!")
+            
+        except Exception as e:
+            self.logger.critical(f"   ❌❌❌ EMERGENCY CLOSE FAILED: {e} ❌❌❌")
+            self.logger.critical(f"   🚨 MANUAL INTERVENTION REQUIRED!")
+        
+        # Notify admin via Discord
+        await notify_bracket_incomplete(
+            user_email=user_email,
+            user_api_key=user_api_key,
+            symbol=symbol,
+            entry_order_id=entry_order_id,
+            tp_placed=False,
+            sl_placed=False,
+            error=f"{reason} - Emergency close {'SUCCESSFUL' if close_success else 'FAILED'}"
+        )
+        
+        # Log to database
+        await log_error_to_db(
+            self.db_pool,
+            user_api_key,
+            "EMERGENCY_CLOSE",
+            f"{reason}. Close: {'OK' if close_success else 'FAILED'}",
+            {
+                "symbol": symbol,
+                "entry_order_id": entry_order_id,
+                "close_order_id": close_order_id,
+                "close_success": close_success
+            }
+        )
     
     async def poll_and_execute(self):
         """
