@@ -534,3 +534,112 @@ async def notify_signal_invalid_values(
         },
         level="error"
     )
+
+
+# ==================== NEW NOTIFICATION TYPES ====================
+
+async def notify_api_failure(
+    service: str,
+    endpoint: str,
+    error: str,
+    status_code: int = None,
+    user_api_key: str = None,
+    impact: str = "Operation skipped"
+):
+    """Notify admin when external API fails (Kraken, etc)."""
+    details = {
+        "Service": service,
+        "Endpoint": endpoint[:100] if endpoint else "unknown",
+        "Error": str(error)[:500],
+        "Impact": impact,
+    }
+    if status_code:
+        details["Status Code"] = status_code
+    if user_api_key:
+        details["User API Key"] = user_api_key[:20] + "..."
+    
+    await notify_admin(
+        title=f"🔌 API FAILURE: {service}",
+        details=details,
+        level="error"
+    )
+
+
+async def notify_database_error(
+    operation: str,
+    error: str,
+    table: str = None,
+    user_api_key: str = None,
+    query_snippet: str = None
+):
+    """Notify admin when database operation fails."""
+    details = {
+        "Operation": operation,
+        "Error": str(error)[:500],
+        "Impact": "Data may not be saved/retrieved correctly",
+    }
+    if table:
+        details["Table"] = table
+    if user_api_key:
+        details["User API Key"] = user_api_key[:20] + "..."
+    if query_snippet:
+        details["Query"] = query_snippet[:200]
+    
+    await notify_admin(
+        title=f"🗄️ DATABASE ERROR: {operation}",
+        details=details,
+        level="error"
+    )
+
+
+async def notify_critical_error(
+    error_type: str,
+    error: str,
+    location: str = None,
+    user_api_key: str = None,
+    context: dict = None
+):
+    """Notify admin for any critical/unhandled error."""
+    details = {
+        "Error Type": error_type,
+        "Error": str(error)[:500],
+        "Severity": "CRITICAL - Requires investigation",
+    }
+    if location:
+        details["Location"] = location
+    if user_api_key:
+        details["User API Key"] = user_api_key[:20] + "..."
+    if context:
+        # Add context items (limit to avoid huge emails)
+        for k, v in list(context.items())[:5]:
+            details[k] = str(v)[:200]
+    
+    await notify_admin(
+        title=f"🚨 CRITICAL ERROR: {error_type}",
+        details=details,
+        level="error"
+    )
+
+
+async def notify_security_alert(
+    alert_type: str,
+    details_dict: dict,
+    ip_address: str = None,
+    user_agent: str = None
+):
+    """Notify admin of potential security issues (SQL injection attempts, etc)."""
+    details = {
+        "Alert Type": alert_type,
+        "Severity": "SECURITY - Potential attack detected",
+        **{k: str(v)[:200] for k, v in details_dict.items()}
+    }
+    if ip_address:
+        details["IP Address"] = ip_address
+    if user_agent:
+        details["User Agent"] = user_agent[:200]
+    
+    await notify_admin(
+        title=f"🛡️ SECURITY ALERT: {alert_type}",
+        details=details,
+        level="error"
+    )
