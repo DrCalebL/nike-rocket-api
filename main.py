@@ -3063,10 +3063,10 @@ async def portfolio_dashboard(request: Request):
                         <h3>100% Non-Custodial</h3>
                         <p>Your funds never leave your Kraken account. We can't touch them.</p>
                         <ul>
-                            <li>API keys with <strong>trade-only</strong> permissions</li>
-                            <li>Withdrawal permissions NEVER requested</li>
-                            <li>All funds remain in YOUR Kraken Futures wallet</li>
-                            <li>Disable API keys anytime to stop trading</li>
+                            <li>Trade-only API permissions</li>
+                            <li>Withdrawals NEVER enabled</li>
+                            <li>Funds stay in YOUR wallet</li>
+                            <li>Revoke access anytime</li>
                         </ul>
                     </div>
 
@@ -3074,12 +3074,12 @@ async def portfolio_dashboard(request: Request):
                     <div class="safety-card">
                         <div class="icon">📖</div>
                         <h3>Fully Open Source</h3>
-                        <p>Don't trust, verify. Our entire trading system is public on GitHub.</p>
+                        <p>Don't trust, verify. Our entire codebase is public.</p>
                         <ul>
-                            <li>Audit every line of code yourself</li>
-                            <li>See exactly how trades are executed</li>
-                            <li>Verify billing calculations</li>
-                            <li>Community-reviewed for security</li>
+                            <li>Audit every line of code</li>
+                            <li>See how trades execute</li>
+                            <li>Verify billing logic</li>
+                            <li>Community reviewed</li>
                         </ul>
                         <a href="https://github.com/calebws/nike-rocket-api" target="_blank" class="github-link">
                             <svg viewBox="0 0 16 16" fill="currentColor">
@@ -3093,31 +3093,38 @@ async def portfolio_dashboard(request: Request):
                     <div class="safety-card">
                         <div class="icon">📊</div>
                         <h3>Professional Risk Management</h3>
-                        <p>Every trade follows strict risk protocols used by professional traders.</p>
+                        <p>Strict protocols used by professional traders.</p>
                         <ul>
-                            <li><strong>2-3% risk per trade</strong> - Never bet the farm</li>
-                            <li><strong>ATR-based stops</strong> - Dynamic SL adapts to volatility</li>
-                            <li><strong>Every trade has TP & SL</strong> - No runaway losses</li>
-                            <li><strong>Position sizing formula</strong> - Risk-based, not leverage-based</li>
+                            <li>2-3% max risk per trade</li>
+                            <li>ATR-based dynamic stops</li>
+                            <li>TP & SL on every trade</li>
+                            <li>Risk-based position sizing</li>
                         </ul>
-                        <div class="tech-badges">
-                            <span class="tech-badge">ATR Indicator</span>
-                            <span class="tech-badge">Multi-Timeframe</span>
-                            <span class="tech-badge">Backtested</span>
-                        </div>
+                    </div>
+
+                    <!-- Order Retry Logic -->
+                    <div class="safety-card">
+                        <div class="icon">🔄</div>
+                        <h3>Bulletproof Order Execution</h3>
+                        <p>Automatic retry logic protects every trade.</p>
+                        <ul>
+                            <li>3 retry attempts per order</li>
+                            <li>Exponential backoff timing</li>
+                            <li>Entry/TP/SL fails = trade aborted safely</li>
+                            <li>Admin alerted on any failure</li>
+                        </ul>
                     </div>
 
                     <!-- Fair Billing -->
                     <div class="safety-card">
                         <div class="icon">💰</div>
                         <h3>Fair Profit-Share Billing</h3>
-                        <p>We only make money when YOU make money. Aligned incentives.</p>
+                        <p>We only profit when YOU profit.</p>
                         <ul>
-                            <li><strong>10% of net profits</strong> - Only pay on gains</li>
-                            <li><strong>Net profit billing</strong> - Losses offset wins</li>
-                            <li><strong>30-day cycles</strong> - One bill per month</li>
-                            <li><strong>No profit = $0 fee</strong> - Losing month? No invoice</li>
-                            <li><strong>Manual trades excluded</strong> - Only charged for signals</li>
+                            <li>10% of net profits only</li>
+                            <li>Losses offset wins</li>
+                            <li>30-day billing cycles</li>
+                            <li>No profit = no fee</li>
                         </ul>
                     </div>
 
@@ -3125,32 +3132,13 @@ async def portfolio_dashboard(request: Request):
                     <div class="safety-card">
                         <div class="icon">🎯</div>
                         <h3>Smart Signal Matching</h3>
-                        <p>Our system distinguishes between copytraded signals and your manual trades.</p>
+                        <p>We know the difference between our trades and yours.</p>
                         <ul>
-                            <li>Only Nike Rocket signals are tracked for billing</li>
-                            <li>Your own manual trades on Kraken are FREE</li>
-                            <li>No surprise fees on trades we didn't make</li>
-                            <li>Full audit trail of which signals triggered trades</li>
+                            <li>Only billed for our signals</li>
+                            <li>Your manual trades are free</li>
+                            <li>No surprise fees</li>
+                            <li>Full audit trail</li>
                         </ul>
-                    </div>
-
-                    <!-- Infrastructure -->
-                    <div class="safety-card">
-                        <div class="icon">⚙️</div>
-                        <h3>Enterprise Infrastructure</h3>
-                        <p>Built with the same reliability standards as professional trading firms.</p>
-                        <ul>
-                            <li><strong>Error logging</strong> - Every issue tracked</li>
-                            <li><strong>Balance reconciliation</strong> - Hourly Kraken sync</li>
-                            <li><strong>Rate limiting</strong> - Respects exchange limits</li>
-                            <li><strong>AES-256 encryption</strong> - API keys encrypted at rest</li>
-                        </ul>
-                        <div class="tech-badges">
-                            <span class="tech-badge">Railway Cloud</span>
-                            <span class="tech-badge">PostgreSQL</span>
-                            <span class="tech-badge">CCXT</span>
-                            <span class="tech-badge">Fernet</span>
-                        </div>
                     </div>
                 </div>
             </div>
