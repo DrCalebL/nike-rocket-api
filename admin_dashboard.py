@@ -423,10 +423,22 @@ def get_stats_summary() -> Dict:
         except Exception as e:
             print(f"Error getting portfolio stats: {e}")
     
-    # Override current_value with capital + profit (more accurate than stale last_known_balance)
-    current_value = platform_capital + total_profit
+    # Current Value = actual AUM (sum of last_known_balance from follower_users)
+    # This matches main dashboard behavior and reflects withdrawals
+    if table_exists('follower_users'):
+        try:
+            cur.execute("""
+                SELECT COALESCE(SUM(last_known_balance), 0)
+                FROM follower_users
+                WHERE portfolio_initialized = true
+            """)
+            row = cur.fetchone()
+            current_value = float(row[0]) if row else 0.0
+        except Exception as e:
+            print(f"Error getting AUM: {e}")
+            current_value = platform_capital + total_profit  # Fallback
     
-    # Calculate platform ROI
+    # Calculate platform ROI (based on profit vs capital invested)
     platform_roi = (total_profit / platform_capital * 100) if platform_capital > 0 else 0.0
     
     # Active percentage
