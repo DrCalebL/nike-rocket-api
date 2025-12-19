@@ -229,6 +229,150 @@
         .risk-disclosure p:last-child {
             margin-bottom: 0;
         }
+
+        /* Safety Section Styles */
+        .safety-section {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 16px;
+            padding: 30px;
+            margin-top: 30px;
+            border: 1px solid rgba(102, 126, 234, 0.3);
+        }
+
+        .safety-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            cursor: pointer;
+        }
+
+        .safety-header h2 {
+            color: #fff;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 0;
+        }
+
+        .safety-header .toggle-icon {
+            color: #667eea;
+            font-size: 16px;
+            transition: transform 0.3s;
+        }
+
+        .safety-header.collapsed .toggle-icon {
+            transform: rotate(-90deg);
+        }
+
+        .safety-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .safety-grid.hidden {
+            display: none;
+        }
+
+        .safety-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .safety-card h3 {
+            color: #fff;
+            font-size: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .safety-card p {
+            color: #9ca3af;
+            font-size: 13px;
+            line-height: 1.5;
+            margin: 0;
+        }
+
+        .safety-card ul {
+            list-style: none;
+            padding: 0;
+            margin: 8px 0 0 0;
+        }
+
+        .safety-card li {
+            color: #9ca3af;
+            font-size: 12px;
+            padding: 4px 0;
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+        }
+
+        .safety-card li::before {
+            content: "✓";
+            color: #10b981;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .github-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #24292e;
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 10px;
+            transition: background 0.2s;
+        }
+
+        .github-link:hover {
+            background: #3a3f47;
+        }
+
+        .github-link svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .fee-tiers {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .fee-tier {
+            flex: 1;
+            text-align: center;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+        }
+
+        .fee-tier .tier-name {
+            color: #667eea;
+            font-weight: 600;
+            font-size: 10px;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+
+        .fee-tier .tier-rate {
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -256,6 +400,58 @@
 
         <div id="result-section" class="result-section"></div>
 
+        <!-- Safety & Trust Section -->
+        <div class="safety-section">
+            <div class="safety-header" onclick="toggleSafetySection()">
+                <h2>🛡️ Safety & Trust</h2>
+                <span class="toggle-icon">▼</span>
+            </div>
+            
+            <div class="safety-grid" id="safetyGrid">
+                <div class="safety-card">
+                    <h3>🔐 100% Non-Custodial</h3>
+                    <p>Your funds never leave your Kraken account. We can't touch them.</p>
+                    <ul>
+                        <li>API keys with <strong>trade-only</strong> permissions</li>
+                        <li>Withdrawal permissions NEVER requested</li>
+                        <li>Disable API keys anytime to stop trading</li>
+                    </ul>
+                </div>
+
+                <div class="safety-card">
+                    <h3>📖 Fully Open Source</h3>
+                    <p>Don't trust, verify. Our entire codebase is public on GitHub.</p>
+                    <a href="https://github.com/calebws/nike-rocket-api" target="_blank" class="github-link">
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                        </svg>
+                        View on GitHub
+                    </a>
+                </div>
+
+                <div class="safety-card">
+                    <h3>📊 Professional Risk Management</h3>
+                    <p>Every trade follows strict protocols used by professional traders.</p>
+                    <ul>
+                        <li><strong>2-3% risk per trade</strong> - Never bet the farm</li>
+                        <li><strong>ATR-based stops</strong> - Dynamic SL adapts to volatility</li>
+                        <li><strong>Every trade has TP & SL</strong> - No runaway losses</li>
+                    </ul>
+                </div>
+
+                <div class="safety-card">
+                    <h3>💰 Fair Profit-Share Billing</h3>
+                    <p>We only make money when YOU make money.</p>
+                    <ul>
+                        <li><strong>10% of net profits</strong> - Only pay on gains</li>
+                        <li><strong>Net profit billing</strong> - Losses offset wins</li>
+                        <li><strong>No profit = $0 fee</strong> - Losing month? No invoice</li>
+                        <li><strong>Manual trades excluded</strong> - Only charged for signals</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
         <div class="risk-disclosure">
             <h4>⚠️ Risk Disclosure</h4>
             <p>
@@ -271,6 +467,13 @@
     </div>
 
     <script>
+        function toggleSafetySection() {
+            const header = document.querySelector('.safety-header');
+            const grid = document.getElementById('safetyGrid');
+            header.classList.toggle('collapsed');
+            grid.classList.toggle('hidden');
+        }
+
         async function signup() {
             const email = document.getElementById('email').value;
             const btn = document.querySelector('.btn');
