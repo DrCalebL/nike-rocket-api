@@ -2632,6 +2632,7 @@ async def portfolio_dashboard(request: Request):
         }}
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 </head>
 <body>
     <div class="container">
@@ -4243,13 +4244,16 @@ async def portfolio_dashboard(request: Request):
                 
                 // Check if we have actual trading data to chart
                 if (data.status === 'success' && data.equity_curve && data.equity_curve.length > 1) {{
-                    // We have trades - render the chart
-                    const labels = data.equity_curve.map(point => {{
-                        const date = new Date(point.date);
-                        return date.toLocaleDateString('en-US', {{ month: 'short', day: 'numeric' }});
-                    }});
+                    // We have trades - render the chart with time-proportional X axis
+                    const equityData = data.equity_curve.map(point => ({{
+                        x: new Date(point.date),
+                        y: point.equity
+                    }}));
                     
-                    const equityData = data.equity_curve.map(point => point.equity);
+                    const startingCapitalData = data.equity_curve.map(point => ({{
+                        x: new Date(point.date),
+                        y: data.initial_capital
+                    }}));
                     
                     // Destroy existing chart if any
                     if (equityChart) {{
@@ -4269,11 +4273,10 @@ async def portfolio_dashboard(request: Request):
                         gradient.addColorStop(1, 'rgba(239, 68, 68, 0.0)');
                     }}
                     
-                    // Create chart
+                    // Create chart with time scale
                     equityChart = new Chart(ctx, {{
                         type: 'line',
                         data: {{
-                            labels: labels,
                             datasets: [{{
                                 label: 'Trading Equity',
                                 data: equityData,
@@ -4290,7 +4293,7 @@ async def portfolio_dashboard(request: Request):
                             }},
                             {{
                                 label: 'Starting Capital',
-                                data: Array(equityData.length).fill(data.initial_capital),
+                                data: startingCapitalData,
                                 borderColor: '#9ca3af',
                                 borderWidth: 1,
                                 borderDash: [5, 5],
@@ -4343,6 +4346,14 @@ async def portfolio_dashboard(request: Request):
                             }},
                             scales: {{
                                 x: {{
+                                    type: 'time',
+                                    time: {{
+                                        unit: 'day',
+                                        displayFormats: {{
+                                            day: 'MMM d'
+                                        }},
+                                        tooltipFormat: 'MMM d, yyyy h:mm a'
+                                    }},
                                     grid: {{
                                         display: false
                                     }},
