@@ -4510,16 +4510,18 @@ async def portfolio_dashboard(request: Request):
                     `;
                     
                     for (const pos of data.positions) {{
-                        const sideColor = pos.side === 'long' || pos.side === 'buy' ? '#10b981' : '#ef4444';
-                        const sideIcon = pos.side === 'long' || pos.side === 'buy' ? '📈' : '📉';
-                        const sideLabel = pos.side === 'long' || pos.side === 'buy' ? 'LONG' : 'SHORT';
+                        const sideLower = (pos.side || '').toLowerCase();
+                        const isLong = sideLower === 'long' || sideLower === 'buy';
+                        const sideColor = isLong ? '#10b981' : '#ef4444';
+                        const sideIcon = isLong ? '📈' : '📉';
+                        const sideLabel = isLong ? 'LONG' : 'SHORT';
                         
                         const openedDate = pos.opened_at ? new Date(pos.opened_at).toLocaleString() : '-';
                         const entryPrice = pos.avg_entry_price || pos.entry_fill_price || 0;
                         const posId = pos.id || pos.symbol.replace('/', '-');
                         
                         html += `
-                            <tr style="border-bottom: 1px solid #e5e7eb;" data-position-id="${{posId}}" data-kraken-symbol="${{pos.kraken_symbol}}" data-entry="${{entryPrice}}" data-size="${{pos.filled_quantity || pos.quantity || 0}}" data-side="${{pos.side}}">
+                            <tr style="border-bottom: 1px solid #e5e7eb;" data-position-id="${{posId}}" data-kraken-symbol="${{pos.kraken_symbol}}" data-entry="${{entryPrice}}" data-size="${{pos.filled_quantity || pos.quantity || 0}}" data-side="${{sideLower}}">
                                 <td style="padding: 12px 10px; font-weight: 600; color: #374151;">
                                     ${{pos.symbol || pos.kraken_symbol || '-'}}
                                 </td>
