@@ -33,6 +33,8 @@ from datetime import datetime
 import asyncpg
 import aiohttp
 
+from config import get_admin_email, utc_now
+
 # Setup logging
 logger = logging.getLogger("DB_UTILS")
 
@@ -52,7 +54,7 @@ if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 RESEND_API_URL = "https://api.resend.com/emails"
 FROM_EMAIL = os.getenv("FROM_EMAIL", "$NIKEPIG's Massive Rocket <onboarding@resend.dev>")
-ADMIN_EMAIL = "calebws87@gmail.com"
+ADMIN_EMAIL = get_admin_email()
 
 # Global pool reference
 _db_pool: Optional[asyncpg.Pool] = None
@@ -73,6 +75,7 @@ async def notify_db_failure(error_type: str, error_message: str, context: Option
         return
     
     subject = f"🚨 CRITICAL: DATABASE {error_type}"
+    now = utc_now()
     
     # Build HTML rows
     html_rows = f"""
@@ -82,7 +85,7 @@ async def notify_db_failure(error_type: str, error_message: str, context: Option
     </tr>
     <tr>
         <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold; background: #f5f5f5;">Timestamp</td>
-        <td style="padding: 8px; border: 1px solid #ddd;">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</td>
+        <td style="padding: 8px; border: 1px solid #ddd;">{now.strftime('%Y-%m-%d %H:%M:%S')} UTC</td>
     </tr>
     <tr>
         <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold; background: #f5f5f5;">Error</td>
@@ -104,7 +107,7 @@ async def notify_db_failure(error_type: str, error_message: str, context: Option
     <body style="font-family: Arial, sans-serif; padding: 20px;">
         <div style="border-left: 4px solid #e74c3c; padding-left: 15px; margin-bottom: 20px;">
             <h2 style="color: #e74c3c; margin: 0;">🚨 DATABASE CONNECTION FAILURE</h2>
-            <p style="color: #666; margin: 5px 0;">Nike Rocket Alert - {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</p>
+            <p style="color: #666; margin: 5px 0;">Nike Rocket Alert - {now.strftime('%Y-%m-%d %H:%M:%S')} UTC</p>
         </div>
         
         <table style="border-collapse: collapse; width: 100%; max-width: 600px;">
