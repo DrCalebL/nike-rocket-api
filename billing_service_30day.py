@@ -272,6 +272,7 @@ class BillingServiceV2:
                 if profit > 0 and fee_amount > 0 and fee_tier != 'team':
                     # Profitable cycle - generate invoice
                     invoice_result = await self._generate_coinbase_invoice(
+                        conn=conn,  # Pass connection to avoid FK violation
                         user_id=user_id,
                         email=user['email'],
                         api_key=user['api_key'],
@@ -334,6 +335,7 @@ class BillingServiceV2:
     
     async def _generate_coinbase_invoice(
         self,
+        conn,  # Database connection (passed to avoid FK violation)
         user_id: int,
         email: str,
         api_key: str,
@@ -403,25 +405,24 @@ class BillingServiceV2:
                 expires_at_str = data['expires_at'].replace('Z', '+00:00')
                 expires_at = datetime.fromisoformat(expires_at_str).replace(tzinfo=None)
                 
-                # Record invoice in database
-                async with self.db_pool.acquire() as conn:
-                    await conn.execute("""
-                        INSERT INTO billing_invoices
-                        (user_id, billing_cycle_id, coinbase_charge_id, coinbase_charge_code,
-                         hosted_url, amount_usd, profit_amount, fee_tier, fee_percentage,
-                         cycle_start, cycle_end, expires_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-                    """, user_id, cycle_id, charge_id, charge_code,
-                        hosted_url, amount, profit, fee_tier, fee_percentage,
-                        cycle_start, cycle_end, expires_at)
-                    
-                    # Update billing cycle with invoice info
-                    await conn.execute("""
-                        UPDATE billing_cycles SET
-                            invoice_id = $1,
-                            invoice_created_at = CURRENT_TIMESTAMP
-                        WHERE id = $2
-                    """, charge_id, cycle_id)
+                # Record invoice in database (use passed connection to see uncommitted billing_cycle)
+                await conn.execute("""
+                    INSERT INTO billing_invoices
+                    (user_id, billing_cycle_id, coinbase_charge_id, coinbase_charge_code,
+                     hosted_url, amount_usd, profit_amount, fee_tier, fee_percentage,
+                     cycle_start, cycle_end, expires_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                """, user_id, cycle_id, charge_id, charge_code,
+                    hosted_url, amount, profit, fee_tier, fee_percentage,
+                    cycle_start, cycle_end, expires_at)
+                
+                # Update billing cycle with invoice info
+                await conn.execute("""
+                    UPDATE billing_cycles SET
+                        invoice_id = $1,
+                        invoice_created_at = CURRENT_TIMESTAMP
+                    WHERE id = $2
+                """, charge_id, cycle_id)
                 
                 self.logger.info(f"💳 Created Coinbase invoice for user {user_id}: ${amount:.2f}")
                 
