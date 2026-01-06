@@ -72,11 +72,17 @@ import secrets
 import time
 import json
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 
 import ccxt
 from cryptography.fernet import Fernet
+
+from config import (
+    utc_now, to_naive_utc,
+    ERROR_MESSAGE_MAX_LENGTH, ERROR_CONTEXT_MAX_LENGTH,
+    get_fee_rate, get_tier_display
+)
 
 # Configuration
 CHECK_INTERVAL_SECONDS = 60
@@ -100,8 +106,8 @@ async def log_error_to_db(pool, api_key: str, error_type: str, error_message: st
                    VALUES ($1, $2, $3, $4)""",
                 api_key[:20] + "..." if api_key and len(api_key) > 20 else api_key,
                 error_type,
-                error_message[:500] if error_message else None,
-                json.dumps(context) if context else None
+                error_message[:ERROR_MESSAGE_MAX_LENGTH] if error_message else None,
+                json.dumps(context)[:ERROR_CONTEXT_MAX_LENGTH] if context else None
             )
     except Exception as e:
         logger.error(f"Failed to log error to DB: {e}")
@@ -287,15 +293,19 @@ class PositionMonitor:
                 action_map = {'long': 'BUY', 'short': 'SELL'}
                 signal_action = action_map.get(side.lower(), side.upper())
                 
+                # Calculate lookback threshold
+                lookback_threshold = to_naive_utc(utc_now() - timedelta(hours=lookback_hours))
+                
+                # Use parameterized query (not string formatting) for safety
                 signal = await conn.fetchrow("""
                     SELECT id, signal_id, symbol, action, created_at
                     FROM signals
                     WHERE UPPER(symbol) LIKE $1
                       AND UPPER(action) = UPPER($2)
-                      AND created_at >= NOW() - INTERVAL '%s hours'
+                      AND created_at >= $3
                     ORDER BY created_at DESC
                     LIMIT 1
-                """ % lookback_hours, f'%{symbol_base}%', signal_action)
+                """, f'%{symbol_base}%', signal_action, lookback_threshold)
                 
                 if signal:
                     self.logger.info(f"✅ Found matching signal: {signal['symbol']} {signal['action']} (signal_id: {signal['signal_id']})")
@@ -310,8 +320,10 @@ class PositionMonitor:
                 self.db_pool, "system", "SIGNAL_MATCH_ERROR",
                 str(e), {"symbol": symbol, "side": side, "function": "find_matching_signal"}
             )
-            # On error, assume it's a signal trade to avoid missing fees
-            return {'id': None, 'signal_id': 'unknown'}
+            # On error, default to NOT charging - err in favor of the customer
+            # Return None to treat as manual trade (no fees)
+            self.logger.warning(f"⚠️ Signal matching failed - treating as manual trade (no fees)")
+            return None
     
     # ==================== Fill Recording (Audit Trail) ====================
     
@@ -871,9 +883,14 @@ class PositionMonitor:
             else:  # SHORT
                 profit_usd = (entry_price - exit_price) * position_size
             
-            profit_percent = ((exit_price - entry_price) / entry_price) * 100
-            if side == 'SHORT':
-                profit_percent = -profit_percent
+            # Calculate profit percent with division by zero protection
+            if entry_price > 0:
+                profit_percent = ((exit_price - entry_price) / entry_price) * 100
+                if side == 'SHORT':
+                    profit_percent = -profit_percent
+            else:
+                profit_percent = 0
+                self.logger.error(f"Invalid entry_price of {entry_price} for position {position.get('id')}")
             
             # 30-DAY BILLING: No per-trade fee calculation
             # Fee is calculated at end of 30-day cycle by billing_service_30day.py
@@ -1155,7 +1172,7 @@ class PositionMonitor:
         self.logger.info("📊 POSITION MONITOR v2.6 STARTED")
         self.logger.info("=" * 60)
         self.logger.info(f"🔄 Check interval: {CHECK_INTERVAL_SECONDS} seconds")
-        self.logger.info(f"💰 Fee tiers: Team=0%, VIP=5%, Standard=10%")
+        self.logger.info(f"💰 Fee tiers: {get_tier_display('team')}, {get_tier_display('vip')}, {get_tier_display('standard')}")
         self.logger.info(f"📅 30-Day Rolling Billing: Fees charged at cycle end, not per-trade")
         self.logger.info(f"📝 Position-based tracking: Aggregates fills → 1 trade per position")
         self.logger.info("=" * 60)
