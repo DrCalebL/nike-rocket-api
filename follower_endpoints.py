@@ -447,10 +447,12 @@ async def get_latest_signal(
     try:
         # Check if user has access
         if not user.access_granted:
+            # Use pending_invoice_amount (30-day billing) instead of legacy monthly_fee_due
+            amount_due = getattr(user, 'pending_invoice_amount', 0) or 0
             return {
                 "access_granted": False,
                 "reason": user.suspension_reason or "Payment required",
-                "amount_due": user.monthly_fee_due
+                "amount_due": amount_due
             }
         
         # Get latest unacknowledged signal for this user
@@ -827,14 +829,19 @@ async def report_pnl(
     
     Called by: Follower agent after closing trade
     Auth: Requires user API key
+    
+    DEPRECATED: This endpoint uses legacy per-trade fee logic.
+    The position_monitor now handles P&L tracking with 30-day billing.
+    Kept for backwards compatibility but fees are NO LONGER charged here.
     """
     try:
         # Parse timestamps
         opened_at = datetime.fromisoformat(trade.opened_at.replace('Z', '+00:00'))
         closed_at = datetime.fromisoformat(trade.closed_at.replace('Z', '+00:00'))
         
-        # Calculate 10% fee on profitable trades
-        fee_charged = max(0, trade.profit_usd * 0.10) if trade.profit_usd > 0 else 0.0
+        # 30-DAY BILLING: No per-trade fees - handled by billing_service_30day.py
+        # This prevents double-billing when position_monitor also records the trade
+        fee_charged = 0.0  # ALWAYS 0 - fees calculated at cycle end
         
         # Store trade record
         db_trade = Trade(
@@ -851,35 +858,36 @@ async def report_pnl(
             leverage=trade.leverage,
             profit_usd=trade.profit_usd,
             profit_percent=trade.profit_percent,
-            fee_charged=fee_charged,
+            fee_charged=fee_charged,  # Always 0 for 30-day billing
             notes=trade.notes
         )
         db.add(db_trade)
         
-        # Update user stats
+        # Update user stats - accumulate profit for 30-day billing
+        # Note: Do NOT update monthly_fee_due here - that's legacy
         user.monthly_profit += trade.profit_usd
         user.monthly_trades += 1
         user.total_profit += trade.profit_usd
         user.total_trades += 1
         
-        # Calculate fee due (10% of profits)
-        if trade.profit_usd > 0:
-            user.monthly_fee_due += fee_charged
+        # 30-DAY BILLING: Do NOT accumulate per-trade fees
+        # if trade.profit_usd > 0:
+        #     user.monthly_fee_due += fee_charged  # REMOVED - legacy code
         
         db.commit()
         
         logger.info(f"💰 Trade reported by {user.email}:")
         logger.info(f"   Symbol: {trade.symbol}")
         logger.info(f"   Profit: ${trade.profit_usd:.2f}")
-        logger.info(f"   Fee: ${fee_charged:.2f}")
+        logger.info(f"   Fee: $0 (30-day billing - fees at cycle end)")
         
         return {
             "status": "success",
             "trade_id": db_trade.id,
             "profit_usd": trade.profit_usd,
-            "fee_charged": fee_charged,
-            "monthly_profit": user.monthly_profit,
-            "monthly_fee_due": user.monthly_fee_due
+            "fee_charged": 0,  # Always 0 - 30-day billing
+            "billing_note": "Fees calculated at end of 30-day cycle",
+            "monthly_profit": user.monthly_profit
         }
     
     except Exception as e:
