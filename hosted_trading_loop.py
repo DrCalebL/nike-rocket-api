@@ -241,18 +241,31 @@ class HostedTradingLoop:
         return api_key, api_secret
     
     def get_or_create_exchange(self, user: Dict) -> ccxt.krakenfutures:
-        """Get or create CCXT exchange instance for user"""
+        """
+        Get or create CCXT exchange instance for user
+        
+        Raises:
+            ValueError: If credentials are missing or decryption fails
+        """
         api_key = user['api_key']
         
         # Return cached if exists
         if api_key in self.active_exchanges:
             return self.active_exchanges[api_key]
         
+        # Check if encrypted credentials exist
+        if not user.get('kraken_api_key_encrypted') or not user.get('kraken_api_secret_encrypted'):
+            raise ValueError(f"No encrypted credentials for user {api_key[:15]}...")
+        
         # Decrypt credentials
         kraken_key, kraken_secret = self.decrypt_credentials(
             user['kraken_api_key_encrypted'],
             user['kraken_api_secret_encrypted']
         )
+        
+        # Validate decryption was successful
+        if not kraken_key or not kraken_secret:
+            raise ValueError(f"Failed to decrypt credentials for user {api_key[:15]}...")
         
         # Create exchange
         exchange = ccxt.krakenfutures({
@@ -463,8 +476,20 @@ class HostedTradingLoop:
         user_short = user_api_key[:15] + "..."
         
         try:
-            # Get exchange
-            exchange = self.get_or_create_exchange(user)
+            # Get exchange (may raise ValueError if credentials missing/invalid)
+            try:
+                exchange = self.get_or_create_exchange(user)
+            except ValueError as cred_error:
+                # Credential error - log and skip this user
+                self.logger.warning(f"   ⚠️ {user_short}: Skipping - {cred_error}")
+                await log_error_to_db(
+                    self.db_pool,
+                    user_api_key,
+                    "CREDENTIALS_NOT_FOUND",
+                    str(cred_error),
+                    {"function": "execute_trade", "signal_id": signal.get('signal_id')}
+                )
+                return False
             
             # Convert symbol
             api_symbol = signal['symbol']
