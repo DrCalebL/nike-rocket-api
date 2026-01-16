@@ -459,6 +459,15 @@ class PositionMonitor:
             
             # Build query with optional time filter
             if after_timestamp:
+                # Ensure after_timestamp is a proper datetime, not an interval/timedelta
+                if isinstance(after_timestamp, timedelta):
+                    self.logger.warning(f"after_timestamp was a timedelta, not datetime - skipping time filter")
+                    after_timestamp = None
+                elif not isinstance(after_timestamp, datetime):
+                    self.logger.warning(f"after_timestamp has unexpected type {type(after_timestamp)} - skipping time filter")
+                    after_timestamp = None
+            
+            if after_timestamp:
                 result = await conn.fetchrow("""
                     SELECT 
                         SUM(CASE WHEN side = 'buy' THEN quantity ELSE 0 END) as buy_qty,
