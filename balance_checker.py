@@ -251,21 +251,41 @@ class BalanceChecker:
             else:
                 # Less money than expected = fees, funding, or withdrawal
                 # We cannot distinguish between these via API
-                transaction_type = 'fees_funding_withdrawal'
                 amount = float(expected_balance) - float(cash_balance)
-                logger.info(
-                    f"💸 Detected fees/funding/withdrawal for {api_key[:10]}...: "
-                    f"Expected ${expected_balance:.2f}, Cash ${cash_balance:.2f}, "
-                    f"-${amount:.2f}"
-                )
-            
-                # Record transaction
-                await self.record_transaction(
-                    user_id=user_id,
-                    api_key=api_key,
-                    transaction_type=transaction_type,
-                    amount=amount
-                )
+                
+                # CHECK: Was there a recently closed position?
+                # If trade P&L wasn't recorded correctly (e.g., corrupted entry price),
+                # the expected balance would be wrong, causing false fees detection
+                recently_closed = await self.check_recently_closed_position(user_id)
+                
+                # Also check for large discrepancies that match typical trade sizes
+                # Small discrepancies (<$5) are likely real fees/funding
+                # Large discrepancies (>$5) with recent trades are suspicious
+                is_suspicious = amount > 5.0 and recently_closed
+                
+                if is_suspicious:
+                    logger.warning(
+                        f"⚠️ Skipping fees detection for {api_key[:10]}...: "
+                        f"Large discrepancy (${amount:.2f}) with recently closed trade. "
+                        f"Expected ${expected_balance:.2f}, Cash ${cash_balance:.2f}. "
+                        f"May indicate trade P&L recording issue - please verify manually."
+                    )
+                    # Don't record - could be a trade recording bug
+                else:
+                    transaction_type = 'fees_funding_withdrawal'
+                    logger.info(
+                        f"💸 Detected fees/funding/withdrawal for {api_key[:10]}...: "
+                        f"Expected ${expected_balance:.2f}, Cash ${cash_balance:.2f}, "
+                        f"-${amount:.2f}"
+                    )
+                
+                    # Record transaction
+                    await self.record_transaction(
+                        user_id=user_id,
+                        api_key=api_key,
+                        transaction_type=transaction_type,
+                        amount=amount
+                    )
         else:
             logger.info(f"✅ User {api_key[:10]}...: Cash ${cash_balance:.2f} matches expected")
         
