@@ -1361,7 +1361,7 @@ class PositionMonitor:
     async def run(self):
         """Main loop - checks positions every 60 seconds"""
         self.logger.info("=" * 60)
-        self.logger.info("📊 POSITION MONITOR v2.9 STARTED")
+        self.logger.info("📊 POSITION MONITOR v3.0 STARTED")
         self.logger.info("=" * 60)
         self.logger.info(f"🔄 Check interval: {CHECK_INTERVAL_SECONDS} seconds")
         self.logger.info(f"💰 Fee tiers: {get_tier_display('team')}, {get_tier_display('vip')}, {get_tier_display('standard')}")
@@ -1409,8 +1409,7 @@ async def start_position_monitor(db_pool):
     """Start the position monitor (call from main.py startup)"""
     await asyncio.sleep(40)
     
-    logger.info("🚀 Starting position monitor v2...")
+    logger.info("🚀 Starting position monitor v3...")
     
     monitor = PositionMonitor(db_pool)
     await monitor.run()
-
