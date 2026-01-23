@@ -423,33 +423,41 @@ class HostedTradingLoop:
             # v2.1 FIX: Prevents race condition where fast TP fills cause double execution
             if user_id and signal_id:
                 async with self.db_pool.acquire() as conn:
-                    # Check if we already have a position for this signal (open or closed)
-                    existing_position = await conn.fetchval("""
-                        SELECT COUNT(*) FROM open_positions 
-                        WHERE user_id = $1 AND signal_id = (
-                            SELECT id FROM signals WHERE signal_id = $2 LIMIT 1
-                        )
-                    """, user_id, signal_id)
+                    # First, get the integer signal ID from the signals table
+                    # signal_id param is VARCHAR like 'x-hIb7RDW3tHT_H6dIzoHA'
+                    # open_positions.signal_id is INTEGER
+                    # trades.signal_id is VARCHAR but stores the integer as string ('122')
+                    signal_int_id = await conn.fetchval("""
+                        SELECT id FROM signals WHERE signal_id = $1 LIMIT 1
+                    """, signal_id)
                     
-                    if existing_position and existing_position > 0:
-                        self.logger.warning(
-                            f"   🚫 {user_short}: Position already exists for signal {signal_id[:20]}..."
-                        )
-                        return (True, f"Position already exists for this signal")
-                    
-                    # Also check for very recent trade on this signal (within 60 seconds)
-                    # This catches the case where position closed very quickly
-                    recent_trade = await conn.fetchval("""
-                        SELECT COUNT(*) FROM trades 
-                        WHERE user_id = $1 AND signal_id = $2
-                        AND closed_at > NOW() - INTERVAL '60 seconds'
-                    """, user_id, signal_id)
-                    
-                    if recent_trade and recent_trade > 0:
-                        self.logger.warning(
-                            f"   🚫 {user_short}: Trade recently closed for signal {signal_id[:20]}..."
-                        )
-                        return (True, f"Trade recently closed for this signal")
+                    if signal_int_id:
+                        # Check if we already have a position for this signal (open or closed)
+                        existing_position = await conn.fetchval("""
+                            SELECT COUNT(*) FROM open_positions 
+                            WHERE user_id = $1 AND signal_id = $2
+                        """, user_id, signal_int_id)
+                        
+                        if existing_position and existing_position > 0:
+                            self.logger.warning(
+                                f"   🚫 {user_short}: Position already exists for signal {signal_id[:20]}..."
+                            )
+                            return (True, f"Position already exists for this signal")
+                        
+                        # Also check for very recent trade on this signal (within 60 seconds)
+                        # This catches the case where position closed very quickly
+                        # trades.signal_id stores integer as string, so cast for comparison
+                        recent_trade = await conn.fetchval("""
+                            SELECT COUNT(*) FROM trades 
+                            WHERE user_id = $1 AND signal_id = $2::text
+                            AND closed_at > NOW() - INTERVAL '60 seconds'
+                        """, user_id, signal_int_id)
+                        
+                        if recent_trade and recent_trade > 0:
+                            self.logger.warning(
+                                f"   🚫 {user_short}: Trade recently closed for signal {signal_id[:20]}..."
+                            )
+                            return (True, f"Trade recently closed for this signal")
             
             # ===== CHECK 1: Any open positions (any symbol) =====
             try:
