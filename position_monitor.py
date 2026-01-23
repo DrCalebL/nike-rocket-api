@@ -476,6 +476,13 @@ class PositionMonitor:
                 elif not isinstance(after_timestamp, datetime):
                     self.logger.warning(f"after_timestamp has unexpected type {type(after_timestamp)} - skipping time filter")
                     after_timestamp = None
+                else:
+                    # Extra safety: ensure it's a valid datetime
+                    try:
+                        _ = after_timestamp.timestamp()  # Will fail if not a proper datetime
+                    except (AttributeError, OSError) as e:
+                        self.logger.warning(f"after_timestamp validation failed: {e} - skipping time filter")
+                        after_timestamp = None
             
             if after_timestamp:
                 result = await conn.fetchrow("""
@@ -1024,7 +1031,8 @@ class PositionMonitor:
             
             # ==================== P&L CALCULATION ====================
             # PREFER Kraken's realized P&L (source of truth) when available
-            # Fall back to calculated P&L if Kraken P&L not available
+            # Fall back to calculated P&L if Kraken P&L not available OR is zero
+            # Note: Kraken's fetch_my_trades() doesn't always include realized_pnl
             
             calculated_pnl = None
             if side == 'LONG':
@@ -1032,8 +1040,8 @@ class PositionMonitor:
             else:  # SHORT
                 calculated_pnl = (entry_price - exit_price) * position_size
             
-            # Use Kraken P&L if available, otherwise use calculated
-            if kraken_pnl is not None:
+            # Use Kraken P&L only if it's non-zero (CCXT often returns 0 when data not available)
+            if kraken_pnl is not None and abs(kraken_pnl) > 0.01:
                 profit_usd = kraken_pnl
                 pnl_source = "kraken"
                 
@@ -1041,14 +1049,17 @@ class PositionMonitor:
                 if calculated_pnl is not None:
                     diff = abs(profit_usd - calculated_pnl)
                     if diff > 1.0:  # More than $1 difference
-                        self.logger.warning(
-                            f"⚠️ P&L DISCREPANCY: Kraken=${profit_usd:+.2f}, Calculated=${calculated_pnl:+.2f}, "
-                            f"Diff=${diff:.2f} - Using Kraken (source of truth)"
+                        self.logger.info(
+                            f"   ℹ️ P&L difference: Kraken=${profit_usd:+.2f}, Calculated=${calculated_pnl:+.2f}, "
+                            f"Diff=${diff:.2f} (Kraken includes fees/funding)"
                         )
             else:
                 profit_usd = calculated_pnl
                 pnl_source = "calculated"
-                self.logger.info(f"   Using calculated P&L: ${profit_usd:+.2f} (Kraken P&L not available)")
+                if kraken_pnl is not None and abs(kraken_pnl) < 0.01:
+                    self.logger.info(f"   Using calculated P&L: ${profit_usd:+.2f} (Kraken returned $0 - API limitation)")
+                else:
+                    self.logger.info(f"   Using calculated P&L: ${profit_usd:+.2f} (Kraken P&L not available)")
             
             # Calculate profit percent with division by zero protection
             if entry_price > 0:
