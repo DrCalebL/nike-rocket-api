@@ -474,13 +474,13 @@ class PositionMonitor:
                     self.logger.warning(f"after_timestamp was a timedelta, not datetime - skipping time filter")
                     after_timestamp = None
                 elif not isinstance(after_timestamp, datetime):
-                    self.logger.warning(f"after_timestamp has unexpected type {type(after_timestamp)} - skipping time filter")
+                    self.logger.warning(f"after_timestamp has unexpected type {type(after_timestamp).__name__}: {after_timestamp} - skipping time filter")
                     after_timestamp = None
                 else:
                     # Extra safety: ensure it's a valid datetime
                     try:
                         _ = after_timestamp.timestamp()  # Will fail if not a proper datetime
-                    except (AttributeError, OSError) as e:
+                    except (AttributeError, OSError, TypeError) as e:
                         self.logger.warning(f"after_timestamp validation failed: {e} - skipping time filter")
                         after_timestamp = None
             
@@ -1019,7 +1019,9 @@ class PositionMonitor:
                                 """, position['id'], position['user_id'], base_symbol)
                             
                             await conn.execute("""
-                                UPDATE open_positions SET status = 'closed_manual' WHERE id = $1
+                                UPDATE open_positions 
+                                SET status = 'closed_manual', last_fill_at = NOW()
+                                WHERE id = $1
                             """, position['id'])
                     
                     return False  # Not recorded (manual trade)
@@ -1160,9 +1162,11 @@ class PositionMonitor:
                             AND position_id IS NULL
                         """, position['id'], position['user_id'], base_symbol)
                     
-                    # Mark position as closed
+                    # Mark position as closed and update last_fill_at
                     await conn.execute("""
-                        UPDATE open_positions SET status = 'closed' WHERE id = $1
+                        UPDATE open_positions 
+                        SET status = 'closed', last_fill_at = NOW()
+                        WHERE id = $1
                     """, position['id'])
             
             # Log result
