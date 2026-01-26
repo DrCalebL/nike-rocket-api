@@ -885,7 +885,7 @@ async def admin_check_overdue(password: str = ""):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/admin/billing/verify-accuracy")
+@app.api_route("/api/admin/billing/verify-accuracy", methods=["GET", "POST"])
 async def admin_verify_billing_accuracy(password: str = "", auto_fix: bool = False):
     """
     Verify billing accuracy by checking current_cycle_profit matches sum of trades.
