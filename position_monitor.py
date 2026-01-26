@@ -999,27 +999,30 @@ class PositionMonitor:
                             # Only assign fills from THIS position's time window
                             # Use opened_at as lower bound to avoid old orphaned fills
                             opened_at = position.get('opened_at')
-                            if opened_at:
+                            # Validate opened_at is a proper datetime (not interval/timedelta)
+                            if opened_at and isinstance(opened_at, datetime) and not isinstance(opened_at, timedelta):
                                 await conn.execute("""
-                                    UPDATE position_fills 
+                                    UPDATE position_fills
                                     SET position_id = $1
-                                    WHERE user_id = $2 
+                                    WHERE user_id = $2
                                     AND SPLIT_PART(SPLIT_PART(symbol, '/', 1), ':', 1) = $3
                                     AND position_id IS NULL
                                     AND fill_timestamp >= $4
                                 """, position['id'], position['user_id'], base_symbol, opened_at)
                             else:
-                                # Fallback if no opened_at (shouldn't happen)
+                                # Fallback if no valid opened_at
+                                if opened_at and not isinstance(opened_at, datetime):
+                                    self.logger.warning(f"Invalid opened_at type {type(opened_at).__name__} for position {position.get('id')} - skipping time filter")
                                 await conn.execute("""
-                                    UPDATE position_fills 
+                                    UPDATE position_fills
                                     SET position_id = $1
-                                    WHERE user_id = $2 
+                                    WHERE user_id = $2
                                     AND SPLIT_PART(SPLIT_PART(symbol, '/', 1), ':', 1) = $3
                                     AND position_id IS NULL
                                 """, position['id'], position['user_id'], base_symbol)
-                            
+
                             await conn.execute("""
-                                UPDATE open_positions 
+                                UPDATE open_positions
                                 SET status = 'closed_manual', last_fill_at = NOW()
                                 WHERE id = $1
                             """, position['id'])
@@ -1143,28 +1146,31 @@ class PositionMonitor:
                     # Only assign fills from THIS position's time window
                     # Use opened_at as lower bound to avoid old orphaned fills
                     opened_at = position.get('opened_at')
-                    if opened_at:
+                    # Validate opened_at is a proper datetime (not interval/timedelta)
+                    if opened_at and isinstance(opened_at, datetime) and not isinstance(opened_at, timedelta):
                         await conn.execute("""
-                            UPDATE position_fills 
+                            UPDATE position_fills
                             SET position_id = $1
-                            WHERE user_id = $2 
+                            WHERE user_id = $2
                             AND SPLIT_PART(SPLIT_PART(symbol, '/', 1), ':', 1) = $3
                             AND position_id IS NULL
                             AND fill_timestamp >= $4
                         """, position['id'], position['user_id'], base_symbol, opened_at)
                     else:
-                        # Fallback if no opened_at (shouldn't happen)
+                        # Fallback if no valid opened_at
+                        if opened_at and not isinstance(opened_at, datetime):
+                            self.logger.warning(f"Invalid opened_at type {type(opened_at).__name__} for position {position.get('id')} - skipping time filter")
                         await conn.execute("""
-                            UPDATE position_fills 
+                            UPDATE position_fills
                             SET position_id = $1
-                            WHERE user_id = $2 
+                            WHERE user_id = $2
                             AND SPLIT_PART(SPLIT_PART(symbol, '/', 1), ':', 1) = $3
                             AND position_id IS NULL
                         """, position['id'], position['user_id'], base_symbol)
-                    
+
                     # Mark position as closed and update last_fill_at
                     await conn.execute("""
-                        UPDATE open_positions 
+                        UPDATE open_positions
                         SET status = 'closed', last_fill_at = NOW()
                         WHERE id = $1
                     """, position['id'])
